@@ -1,0 +1,33 @@
+# Zhijian FR Solver Configuration File
+# NACA 0012 Airfoil at M=0.5, AoA=2 degrees
+
+# Physical parameters
+gamma       1.4         # Ratio of specific heats
+Pr          0.72        # Prandtl number
+Re          5000        # Reynolds number
+Mach        0.5         # Free-stream Mach number
+AoA         2.0         # Angle of attack (degrees)
+
+# Reference conditions
+T_inf       300.0       # Free-stream temperature (K)
+p_inf       101325.0    # Free-stream pressure (Pa)
+rho_inf     1.225       # Free-stream density (kg/m^3)
+
+# Numerical parameters
+poly_order  3           # Polynomial order (P1 to P5)
+flux_type   HU          # FR flux type: DG, SD, HU, GA
+riemann     Roe         # Riemann solver: Rusanov, Roe, HLLC
+
+# Time stepping
+CFL         0.5         # CFL number
+dt          0.0         # Fixed time step (0 = auto from CFL)
+t_final     10.0        # Final simulation time
+max_iter    100000      # Maximum iterations
+
+# Viscous computation
+viscous     true        # Enable viscous terms
+
+# Output settings
+output_freq     100     # Solution output frequency
+restart_freq    1000    # Restart file frequency
+case_name       naca0012
