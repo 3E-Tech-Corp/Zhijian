@@ -171,22 +171,31 @@ bool RestartIO::writeParallel(const std::string& filename,
                                const SimParams& params,
                                Real time,
                                int iteration) {
+#ifdef H5_HAVE_PARALLEL
     // Use parallel HDF5
     hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
     H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, MPI_INFO_NULL);
 
     hid_t file_id = H5Fcreate(filename.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, plist_id);
     H5Pclose(plist_id);
+#else
+    // Fallback: each rank writes to a separate file
+    std::string rank_filename = filename + ".rank" + std::to_string(rank);
+    hid_t file_id = H5Fcreate(rank_filename.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+#endif
 
     if (file_id < 0) {
-        error_msg_ = "Failed to create parallel HDF5 file: " + filename;
+        error_msg_ = "Failed to create HDF5 file: " + filename;
         return false;
     }
 
-    // Write global attributes (from rank 0)
-    if (rank == 0) {
-        hid_t attr_space = H5Screate(H5S_SCALAR);
+    // Write attributes
+    hid_t attr_space = H5Screate(H5S_SCALAR);
 
+#ifdef H5_HAVE_PARALLEL
+    // Write global attributes (from rank 0 only in parallel mode)
+    if (rank == 0) {
+#endif
         hid_t attr_id = H5Acreate2(file_id, "time", H5T_NATIVE_DOUBLE, attr_space,
                                     H5P_DEFAULT, H5P_DEFAULT);
         H5Awrite(attr_id, H5T_NATIVE_DOUBLE, &time);
@@ -202,13 +211,25 @@ bool RestartIO::writeParallel(const std::string& filename,
         H5Awrite(attr_id, H5T_NATIVE_INT, &num_procs);
         H5Aclose(attr_id);
 
-        H5Sclose(attr_space);
+        attr_id = H5Acreate2(file_id, "rank", H5T_NATIVE_INT, attr_space,
+                              H5P_DEFAULT, H5P_DEFAULT);
+        H5Awrite(attr_id, H5T_NATIVE_INT, &rank);
+        H5Aclose(attr_id);
+#ifdef H5_HAVE_PARALLEL
     }
+#endif
 
-    // Each rank writes its data to a separate group
+    H5Sclose(attr_space);
+
+#ifdef H5_HAVE_PARALLEL
+    // Each rank writes its data to a separate group (parallel mode)
     std::string group_name = "/rank_" + std::to_string(rank);
     hid_t group_id = H5Gcreate2(file_id, group_name.c_str(), H5P_DEFAULT,
                                  H5P_DEFAULT, H5P_DEFAULT);
+#else
+    // Serial mode: use root group
+    hid_t group_id = file_id;
+#endif
 
     // Flatten and write local solution
     std::vector<Real> sol_data;
@@ -228,7 +249,9 @@ bool RestartIO::writeParallel(const std::string& filename,
     H5Dclose(dataset);
     H5Sclose(dataspace);
 
+#ifdef H5_HAVE_PARALLEL
     H5Gclose(group_id);
+#endif
     H5Fclose(file_id);
 
     return true;
@@ -241,19 +264,25 @@ bool RestartIO::readParallel(const std::string& filename,
                               SimParams& params,
                               Real& time,
                               int& iteration) {
+#ifdef H5_HAVE_PARALLEL
     // Open with parallel HDF5
     hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
     H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, MPI_INFO_NULL);
 
     hid_t file_id = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, plist_id);
     H5Pclose(plist_id);
+#else
+    // Fallback: each rank reads from its own file
+    std::string rank_filename = filename + ".rank" + std::to_string(rank);
+    hid_t file_id = H5Fopen(rank_filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+#endif
 
     if (file_id < 0) {
-        error_msg_ = "Failed to open parallel HDF5 file: " + filename;
+        error_msg_ = "Failed to open HDF5 file: " + filename;
         return false;
     }
 
-    // Read global attributes
+    // Read attributes
     hid_t attr_id = H5Aopen(file_id, "time", H5P_DEFAULT);
     H5Aread(attr_id, H5T_NATIVE_DOUBLE, &time);
     H5Aclose(attr_id);
@@ -262,9 +291,14 @@ bool RestartIO::readParallel(const std::string& filename,
     H5Aread(attr_id, H5T_NATIVE_INT, &iteration);
     H5Aclose(attr_id);
 
-    // Read local data from this rank's group
+#ifdef H5_HAVE_PARALLEL
+    // Read local data from this rank's group (parallel mode)
     std::string group_name = "/rank_" + std::to_string(rank);
     hid_t group_id = H5Gopen2(file_id, group_name.c_str(), H5P_DEFAULT);
+#else
+    // Serial mode: use root group
+    hid_t group_id = file_id;
+#endif
 
     hid_t dataset = H5Dopen2(group_id, "solution", H5P_DEFAULT);
     hid_t dataspace = H5Dget_space(dataset);
@@ -276,7 +310,9 @@ bool RestartIO::readParallel(const std::string& filename,
 
     H5Dclose(dataset);
     H5Sclose(dataspace);
+#ifdef H5_HAVE_PARALLEL
     H5Gclose(group_id);
+#endif
     H5Fclose(file_id);
 
     // Reconstruct solution (needs element info)
