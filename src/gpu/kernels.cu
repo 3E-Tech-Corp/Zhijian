@@ -1,7 +1,7 @@
 #include "gpu/kernels.hpp"
 #include "physics/euler.hpp"
 #include "physics/navierstokes.hpp"
-#include <cub/cub.cuh>
+// Removed CUB dependency to avoid version conflicts with Thrust/ROCm
 
 namespace zhijian {
 namespace gpu {
@@ -704,6 +704,32 @@ __global__ void computeTimeStepKernel(
     }
 }
 
+// Kernel to find minimum value using parallel reduction
+__global__ void reduceMinKernel(const Real* __restrict__ input, Real* __restrict__ output, int n)
+{
+    extern __shared__ Real shared[];
+
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Load data into shared memory (use large value for out-of-bounds)
+    shared[tid] = (idx < n) ? input[idx] : 1e20;
+    __syncthreads();
+
+    // Parallel reduction in shared memory
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            shared[tid] = fmin(shared[tid], shared[tid + s]);
+        }
+        __syncthreads();
+    }
+
+    // Write result for this block
+    if (tid == 0) {
+        output[blockIdx.x] = shared[0];
+    }
+}
+
 Real computeTimeStep(const Real* U, const Real* J,
                       const Real* h_min,
                       Real CFL, Real gamma,
@@ -720,23 +746,31 @@ Real computeTimeStep(const Real* U, const Real* J,
     computeTimeStepKernel<<<blocks, threads, shared_size, stream>>>(
         U, J, h_min, dt_local.data(), CFL, gamma, n_elem, n_sp);
 
-    // Find global minimum using CUB
-    void* d_temp_storage = nullptr;
-    size_t temp_storage_bytes = 0;
-    Real* d_min_dt;
-    cudaMalloc(&d_min_dt, sizeof(Real));
+    // Find global minimum using manual parallel reduction
+    // Phase 1: Reduce n_elem values to fewer blocks
+    const int reduce_threads = 256;
+    int reduce_blocks = (n_elem + reduce_threads - 1) / reduce_threads;
 
-    cub::DeviceReduce::Min(d_temp_storage, temp_storage_bytes,
-                           dt_local.data(), d_min_dt, n_elem, stream);
-    cudaMalloc(&d_temp_storage, temp_storage_bytes);
-    cub::DeviceReduce::Min(d_temp_storage, temp_storage_bytes,
-                           dt_local.data(), d_min_dt, n_elem, stream);
+    DeviceArray<Real> partial_min(reduce_blocks);
+    reduceMinKernel<<<reduce_blocks, reduce_threads, reduce_threads * sizeof(Real), stream>>>(
+        dt_local.data(), partial_min.data(), n_elem);
 
+    // Phase 2: Further reduce if needed (for very large meshes)
+    while (reduce_blocks > 1) {
+        int new_blocks = (reduce_blocks + reduce_threads - 1) / reduce_threads;
+        DeviceArray<Real> temp_min(new_blocks);
+        reduceMinKernel<<<new_blocks, reduce_threads, reduce_threads * sizeof(Real), stream>>>(
+            partial_min.data(), temp_min.data(), reduce_blocks);
+
+        // Copy result back
+        cudaMemcpyAsync(partial_min.data(), temp_min.data(), new_blocks * sizeof(Real),
+                        cudaMemcpyDeviceToDevice, stream);
+        reduce_blocks = new_blocks;
+    }
+
+    // Copy final minimum to host
     Real min_dt;
-    cudaMemcpy(&min_dt, d_min_dt, sizeof(Real), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_temp_storage);
-    cudaFree(d_min_dt);
+    cudaMemcpy(&min_dt, partial_min.data(), sizeof(Real), cudaMemcpyDeviceToHost);
 
     return min_dt;
 }
