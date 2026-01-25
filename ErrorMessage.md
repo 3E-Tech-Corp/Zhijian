@@ -1,36 +1,34 @@
-[ 84%] Building CXX object CMakeFiles/zhijian.dir/src/main.cpp.o
-/home/z651w035/codes/Zhijian/src/main.cpp: In function ‘zhijian::SimParams parseConfig(const string&)’:
-/home/z651w035/codes/Zhijian/src/main.cpp:78:36: error: variable ‘std::istringstream iss’ has initializer but incomplete type
-   78 |         std::istringstream iss(line);
-      |                                    ^
-/home/z651w035/codes/Zhijian/src/main.cpp: In function ‘int main(int, char**)’:
-/home/z651w035/codes/Zhijian/src/main.cpp:307:31: error: ‘setw’ is not a member of ‘std’; did you mean ‘set’?
-  307 |             std::cout << std::setw(6) << iter << "  "
-      |                               ^~~~
-      |                               set
-/home/z651w035/codes/Zhijian/src/main.cpp:308:50: error: ‘setprecision’ is not a member of ‘std’
-  308 |                       << std::scientific << std::setprecision(4)
-      |                                                  ^~~~~~~~~~~~
-/home/z651w035/codes/Zhijian/src/main.cpp:309:31: error: ‘setw’ is not a member of ‘std’; did you mean ‘set’?
-  309 |                       << std::setw(12) << time << "  "
-      |                               ^~~~
-      |                               set
-/home/z651w035/codes/Zhijian/src/main.cpp:310:31: error: ‘setw’ is not a member of ‘std’; did you mean ‘set’?
-  310 |                       << std::setw(12) << residual << "\n";
-      |                               ^~~~
-      |                               set
-/home/z651w035/codes/Zhijian/src/main.cpp:320:32: error: aggregate ‘std::ostringstream fname’ has incomplete type and cannot be defined
-  320 |             std::ostringstream fname;
-      |                                ^~~~~
-/home/z651w035/codes/Zhijian/src/main.cpp:322:34: error: ‘setfill’ is not a member of ‘std’; did you mean ‘fill’?
-  322 |                   << "_" << std::setfill('0') << std::setw(4) << output_count << ".vtu";
-      |                                  ^~~~~~~
-      |                                  fill
-/home/z651w035/codes/Zhijian/src/main.cpp:322:55: error: ‘setw’ is not a member of ‘std’; did you mean ‘set’?
-  322 |                   << "_" << std::setfill('0') << std::setw(4) << output_count << ".vtu";
-      |                                                       ^~~~
-      |                                                       set
-make[2]: *** [CMakeFiles/zhijian.dir/build.make:76: CMakeFiles/zhijian.dir/src/main.cpp.o] Error 1
+[ 92%] Linking CUDA device code CMakeFiles/zhijian.dir/cmake_device_link.o
+nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_70)
+nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_70)
+nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_70)
+nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_75)
+nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_75)
+nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_75)
+nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_80)
+nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_80)
+nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_80)
+nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_86)
+nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_86)
+nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_86)
+nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_89)
+nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_89)
+nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_89)
+nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_90)
+nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_90)
+nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_90)
+[100%] Linking CXX executable zhijian
+/usr/bin/ld: libzhijian_lib.a(partitioner.cpp.o): in function `zhijian::MeshPartitioner::partition(zhijian::Mesh&, int)':
+partitioner.cpp:(.text+0x19c7): undefined reference to `METIS_SetDefaultOptions'
+/usr/bin/ld: partitioner.cpp:(.text+0x1a20): undefined reference to `METIS_PartGraphKway'
+/usr/bin/ld: /home/z651w035/hpmusic/contrib/cgnslib/lib/libcgns.a(ADFH.c.o): in function `ADFH_Children_IDs':
+ADFH.c:(.text+0x441f): undefined reference to `H5Literate'
+/usr/bin/ld: ADFH.c:(.text+0x453b): undefined reference to `H5Literate'
+/usr/bin/ld: /home/z651w035/hpmusic/contrib/cgnslib/lib/libcgns.a(ADFH.c.o): in function `ADFH_Children_Names':
+ADFH.c:(.text+0x581f): undefined reference to `H5Literate'
+/usr/bin/ld: ADFH.c:(.text+0x592b): undefined reference to `H5Literate'
+collect2: error: ld returned 1 exit status
+make[2]: *** [CMakeFiles/zhijian.dir/build.make:153: zhijian] Error 1
 make[1]: *** [CMakeFiles/Makefile2:111: CMakeFiles/zhijian.dir/all] Error 2
 make: *** [Makefile:136: all] Error 2
 
