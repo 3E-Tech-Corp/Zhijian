@@ -6,6 +6,14 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <cmath>
+
+// CUDA host/device macro - only use CUDA keywords when compiling with nvcc
+#ifdef __CUDACC__
+#define ZHIJIAN_HD __host__ __device__
+#else
+#define ZHIJIAN_HD
+#endif
 
 namespace zhijian {
 
@@ -65,46 +73,46 @@ enum class RiemannSolver : int {
 struct Vec2 {
     Real x, y;
 
-    __host__ __device__ Vec2() : x(0), y(0) {}
-    __host__ __device__ Vec2(Real x_, Real y_) : x(x_), y(y_) {}
+    ZHIJIAN_HD Vec2() : x(0), y(0) {}
+    ZHIJIAN_HD Vec2(Real x_, Real y_) : x(x_), y(y_) {}
 
-    __host__ __device__ Vec2 operator+(const Vec2& v) const { return Vec2(x + v.x, y + v.y); }
-    __host__ __device__ Vec2 operator-(const Vec2& v) const { return Vec2(x - v.x, y - v.y); }
-    __host__ __device__ Vec2 operator*(Real s) const { return Vec2(x * s, y * s); }
-    __host__ __device__ Vec2 operator/(Real s) const { return Vec2(x / s, y / s); }
-    __host__ __device__ Real dot(const Vec2& v) const { return x * v.x + y * v.y; }
-    __host__ __device__ Real norm() const { return sqrt(x * x + y * y); }
-    __host__ __device__ Real norm2() const { return x * x + y * y; }
+    ZHIJIAN_HD Vec2 operator+(const Vec2& v) const { return Vec2(x + v.x, y + v.y); }
+    ZHIJIAN_HD Vec2 operator-(const Vec2& v) const { return Vec2(x - v.x, y - v.y); }
+    ZHIJIAN_HD Vec2 operator*(Real s) const { return Vec2(x * s, y * s); }
+    ZHIJIAN_HD Vec2 operator/(Real s) const { return Vec2(x / s, y / s); }
+    ZHIJIAN_HD Real dot(const Vec2& v) const { return x * v.x + y * v.y; }
+    ZHIJIAN_HD Real norm() const { return sqrt(x * x + y * y); }
+    ZHIJIAN_HD Real norm2() const { return x * x + y * y; }
 };
 
 // State vector for compressible flow
 struct State {
     Real data[N_VARS];
 
-    __host__ __device__ State() {
+    ZHIJIAN_HD State() {
         for (int i = 0; i < N_VARS; ++i) data[i] = 0;
     }
 
-    __host__ __device__ Real& operator[](int i) { return data[i]; }
-    __host__ __device__ const Real& operator[](int i) const { return data[i]; }
+    ZHIJIAN_HD Real& operator[](int i) { return data[i]; }
+    ZHIJIAN_HD const Real& operator[](int i) const { return data[i]; }
 
-    __host__ __device__ Real& rho() { return data[0]; }
-    __host__ __device__ Real& rhou() { return data[1]; }
-    __host__ __device__ Real& rhov() { return data[2]; }
-    __host__ __device__ Real& rhoE() { return data[3]; }
+    ZHIJIAN_HD Real& rho() { return data[0]; }
+    ZHIJIAN_HD Real& rhou() { return data[1]; }
+    ZHIJIAN_HD Real& rhov() { return data[2]; }
+    ZHIJIAN_HD Real& rhoE() { return data[3]; }
 
-    __host__ __device__ const Real& rho() const { return data[0]; }
-    __host__ __device__ const Real& rhou() const { return data[1]; }
-    __host__ __device__ const Real& rhov() const { return data[2]; }
-    __host__ __device__ const Real& rhoE() const { return data[3]; }
+    ZHIJIAN_HD const Real& rho() const { return data[0]; }
+    ZHIJIAN_HD const Real& rhou() const { return data[1]; }
+    ZHIJIAN_HD const Real& rhov() const { return data[2]; }
+    ZHIJIAN_HD const Real& rhoE() const { return data[3]; }
 
-    __host__ __device__ State operator+(const State& s) const {
+    ZHIJIAN_HD State operator+(const State& s) const {
         State r;
         for (int i = 0; i < N_VARS; ++i) r.data[i] = data[i] + s.data[i];
         return r;
     }
 
-    __host__ __device__ State operator*(Real a) const {
+    ZHIJIAN_HD State operator*(Real a) const {
         State r;
         for (int i = 0; i < N_VARS; ++i) r.data[i] = data[i] * a;
         return r;

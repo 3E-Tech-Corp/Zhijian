@@ -8,11 +8,11 @@ namespace zhijian {
 class IdealGas {
 public:
     // Constructor with specific heat ratio
-    __host__ __device__
+    ZHIJIAN_HD
     explicit IdealGas(Real gamma = 1.4) : gamma_(gamma) {}
 
     // Compute pressure from conservative variables
-    __host__ __device__
+    ZHIJIAN_HD
     Real pressure(const State& U) const {
         Real rho = U.rho();
         Real u = U.rhou() / rho;
@@ -24,20 +24,20 @@ public:
 
     // Compute temperature from conservative variables
     // T = p / (rho * R) where R = (gamma - 1) * cv
-    __host__ __device__
+    ZHIJIAN_HD
     Real temperature(const State& U, Real R_gas = 287.0) const {
         return pressure(U) / (U.rho() * R_gas);
     }
 
     // Compute speed of sound
-    __host__ __device__
+    ZHIJIAN_HD
     Real soundSpeed(const State& U) const {
         Real p = pressure(U);
         return sqrt(gamma_ * p / U.rho());
     }
 
     // Compute Mach number
-    __host__ __device__
+    ZHIJIAN_HD
     Real machNumber(const State& U) const {
         Real rho = U.rho();
         Real u = U.rhou() / rho;
@@ -47,33 +47,33 @@ public:
     }
 
     // Compute velocity components
-    __host__ __device__
+    ZHIJIAN_HD
     void velocity(const State& U, Real& u, Real& v) const {
         u = U.rhou() / U.rho();
         v = U.rhov() / U.rho();
     }
 
     // Compute specific enthalpy h = (E + p/rho)
-    __host__ __device__
+    ZHIJIAN_HD
     Real enthalpy(const State& U) const {
         return (U.rhoE() + pressure(U)) / U.rho();
     }
 
     // Compute total enthalpy H = rho*h = rhoE + p
-    __host__ __device__
+    ZHIJIAN_HD
     Real totalEnthalpy(const State& U) const {
         return U.rhoE() + pressure(U);
     }
 
     // Compute entropy s = p / rho^gamma (up to a constant)
-    __host__ __device__
+    ZHIJIAN_HD
     Real entropy(const State& U) const {
         Real p = pressure(U);
         return p / pow(U.rho(), gamma_);
     }
 
     // Convert primitive variables (rho, u, v, p) to conservative
-    __host__ __device__
+    ZHIJIAN_HD
     State primToConserv(Real rho, Real u, Real v, Real p) const {
         State U;
         U.rho() = rho;
@@ -84,7 +84,7 @@ public:
     }
 
     // Convert conservative to primitive variables
-    __host__ __device__
+    ZHIJIAN_HD
     void conservToPrim(const State& U, Real& rho, Real& u, Real& v, Real& p) const {
         rho = U.rho();
         u = U.rhou() / rho;
@@ -93,7 +93,7 @@ public:
     }
 
     // Compute inviscid flux in x-direction
-    __host__ __device__
+    ZHIJIAN_HD
     State fluxX(const State& U) const {
         Real rho = U.rho();
         Real u = U.rhou() / rho;
@@ -109,7 +109,7 @@ public:
     }
 
     // Compute inviscid flux in y-direction
-    __host__ __device__
+    ZHIJIAN_HD
     State fluxY(const State& U) const {
         Real rho = U.rho();
         Real u = U.rhou() / rho;
@@ -125,7 +125,7 @@ public:
     }
 
     // Compute normal flux F * nx + G * ny
-    __host__ __device__
+    ZHIJIAN_HD
     State fluxNormal(const State& U, Real nx, Real ny) const {
         Real rho = U.rho();
         Real u = U.rhou() / rho;
@@ -143,7 +143,7 @@ public:
     }
 
     // Compute flux Jacobian eigenvalues for stability analysis
-    __host__ __device__
+    ZHIJIAN_HD
     void eigenvalues(const State& U, Real nx, Real ny,
                      Real& lambda1, Real& lambda2, Real& lambda3, Real& lambda4) const {
         Real u, v;
@@ -158,7 +158,7 @@ public:
     }
 
     // Maximum wave speed for stability
-    __host__ __device__
+    ZHIJIAN_HD
     Real maxWaveSpeed(const State& U) const {
         Real u, v;
         velocity(U, u, v);
@@ -176,7 +176,7 @@ private:
 class RiemannSolvers {
 public:
     // Rusanov (Local Lax-Friedrichs) flux
-    __host__ __device__
+    ZHIJIAN_HD
     static State rusanov(const State& UL, const State& UR,
                          Real nx, Real ny, Real gamma) {
         IdealGas gas(gamma);
@@ -196,7 +196,7 @@ public:
     }
 
     // Roe flux with entropy fix
-    __host__ __device__
+    ZHIJIAN_HD
     static State roe(const State& UL, const State& UR,
                      Real nx, Real ny, Real gamma) {
         IdealGas gas(gamma);
@@ -287,7 +287,7 @@ public:
     }
 
     // HLLC flux
-    __host__ __device__
+    ZHIJIAN_HD
     static State hllc(const State& UL, const State& UR,
                       Real nx, Real ny, Real gamma) {
         IdealGas gas(gamma);
