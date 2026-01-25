@@ -9,12 +9,12 @@ namespace zhijian {
 class ViscousFlux {
 public:
     // Constructor with physical parameters
-    __host__ __device__
+    ZHIJIAN_HD
     ViscousFlux(Real gamma, Real Re, Real Pr, Real mu_ref = 1.0, Real T_ref = 1.0)
         : gamma_(gamma), Re_(Re), Pr_(Pr), mu_ref_(mu_ref), T_ref_(T_ref) {}
 
     // Compute dynamic viscosity using Sutherland's law
-    __host__ __device__
+    ZHIJIAN_HD
     Real dynamicViscosity(Real T) const {
         // Sutherland's law: mu = mu_ref * (T/T_ref)^1.5 * (T_ref + S) / (T + S)
         // where S = 110.4 K for air
@@ -25,7 +25,7 @@ public:
 
     // Compute thermal conductivity
     // k = mu * cp / Pr, where cp = gamma * R / (gamma - 1)
-    __host__ __device__
+    ZHIJIAN_HD
     Real thermalConductivity(Real mu) const {
         Real cp = gamma_ / (gamma_ - 1.0);  // Non-dimensional cp
         return mu * cp / Pr_;
@@ -33,7 +33,7 @@ public:
 
     // Compute viscous stress tensor components
     // tau_xx, tau_xy, tau_yy
-    __host__ __device__
+    ZHIJIAN_HD
     void stressTensor(Real mu, Real dudx, Real dudy, Real dvdx, Real dvdy,
                       Real& tau_xx, Real& tau_xy, Real& tau_yy) const {
         // Using Stokes hypothesis (bulk viscosity = 0)
@@ -48,7 +48,7 @@ public:
     // Compute viscous flux in x-direction
     // grad_U = [drho/dx, drhou/dx, drhov/dx, drhoE/dx] (not used directly)
     // We need velocity and temperature gradients
-    __host__ __device__
+    ZHIJIAN_HD
     State fluxX(const State& U, Real dudx, Real dudy, Real dvdx, Real dvdy,
                 Real dTdx, Real dTdy) const {
         IdealGas gas(gamma_);
@@ -72,7 +72,7 @@ public:
     }
 
     // Compute viscous flux in y-direction
-    __host__ __device__
+    ZHIJIAN_HD
     State fluxY(const State& U, Real dudx, Real dudy, Real dvdx, Real dvdy,
                 Real dTdx, Real dTdy) const {
         IdealGas gas(gamma_);
@@ -97,7 +97,7 @@ public:
 
     // Compute viscous normal flux at interface
     // Using BR2 (Bassi-Rebay 2) or interior penalty method
-    __host__ __device__
+    ZHIJIAN_HD
     State fluxNormal(const State& U, Real nx, Real ny,
                      Real dudx, Real dudy, Real dvdx, Real dvdy,
                      Real dTdx, Real dTdy) const {
@@ -112,7 +112,7 @@ public:
     }
 
     // Compute velocity gradients from conservative variable gradients
-    __host__ __device__
+    ZHIJIAN_HD
     static void velocityGradients(const State& U,
                                   const State& dUdx, const State& dUdy,
                                   Real& dudx, Real& dudy,
@@ -130,7 +130,7 @@ public:
     }
 
     // Compute temperature gradient from conservative variable gradients
-    __host__ __device__
+    ZHIJIAN_HD
     void temperatureGradient(const State& U,
                              const State& dUdx, const State& dUdy,
                              Real& dTdx, Real& dTdy) const {
@@ -173,7 +173,7 @@ public:
     // UL, UR: states from left and right
     // gradUL, gradUR: gradients from left and right
     // eta: penalty parameter
-    __host__ __device__
+    ZHIJIAN_HD
     static State commonFlux(const State& UL, const State& UR,
                             const State& dUdxL, const State& dUdyL,
                             const State& dUdxR, const State& dUdyR,
