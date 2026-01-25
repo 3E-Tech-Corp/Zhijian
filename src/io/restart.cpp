@@ -1,5 +1,6 @@
 #include "io/restart.hpp"
 #include <hdf5.h>
+#include <mpi.h>
 #include <iostream>
 
 namespace zhijian {
