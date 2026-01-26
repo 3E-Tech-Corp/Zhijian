@@ -40,8 +40,16 @@ find_path(METIS_INCLUDE_DIR metis.h
 find_library(METIS_LIBRARY metis
     HINTS ${METIS_DIR}/lib /usr/local/lib /usr/lib)
 
+# Find GKlib (METIS dependency)
+find_library(GKLIB_LIBRARY GKlib
+    HINTS ${METIS_DIR}/lib ${GKLIB_DIR}/lib /usr/local/lib /usr/lib)
+
 if(NOT METIS_INCLUDE_DIR OR NOT METIS_LIBRARY)
     message(FATAL_ERROR "METIS library not found. Set METIS_DIR.")
+endif()
+
+if(GKLIB_LIBRARY)
+    message(STATUS "Found GKlib: ${GKLIB_LIBRARY}")
 endif()
 
 # Include directories
@@ -90,17 +98,32 @@ set_target_properties(zhijian_lib PROPERTIES
 
 # Link libraries to zhijian_lib
 target_link_libraries(zhijian_lib
-    ${MPI_CXX_LIBRARIES}
-    ${HDF5_LIBRARIES}
-    ${CGNS_LIBRARY}
-    ${METIS_LIBRARY}
     CUDA::cudart
     CUDA::cublas
 )
 
-# Main executable
+# Collect external libraries in correct order (dependencies must come after dependents)
+set(EXTERNAL_LIBS
+    ${MPI_CXX_LIBRARIES}
+    ${CGNS_LIBRARY}      # CGNS depends on HDF5, so CGNS must come first
+    ${HDF5_LIBRARIES}    # HDF5 comes after CGNS
+    ${METIS_LIBRARY}     # METIS depends on GKlib
+)
+
+# Add GKlib if found
+if(GKLIB_LIBRARY)
+    list(APPEND EXTERNAL_LIBS ${GKLIB_LIBRARY})
+endif()
+
+# Add math library
+list(APPEND EXTERNAL_LIBS m)
+
+# Main executable - link all libraries here for proper symbol resolution
 add_executable(zhijian src/main.cpp)
-target_link_libraries(zhijian zhijian_lib)
+target_link_libraries(zhijian
+    zhijian_lib
+    ${EXTERNAL_LIBS}
+)
 
 # Install
 install(TARGETS zhijian DESTINATION bin)
