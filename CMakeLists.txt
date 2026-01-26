@@ -24,6 +24,26 @@ find_package(MPI REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C CXX)
 find_package(CUDAToolkit REQUIRED)
 
+# Explicitly find HDF5 C library to ensure it's linked (needed for H5Literate)
+# Some systems don't include the C library in HDF5_LIBRARIES properly
+get_filename_component(_hdf5_lib_dir "${HDF5_C_LIBRARIES}" DIRECTORY)
+if(NOT _hdf5_lib_dir OR _hdf5_lib_dir STREQUAL "")
+    # Fallback: extract directory from HDF5_LIBRARIES
+    list(GET HDF5_LIBRARIES 0 _hdf5_first_lib)
+    get_filename_component(_hdf5_lib_dir "${_hdf5_first_lib}" DIRECTORY)
+endif()
+
+find_library(HDF5_C_LIB
+    NAMES hdf5 hdf5-shared
+    HINTS ${_hdf5_lib_dir} ${HDF5_ROOT}/lib ${HDF5_DIR}/lib
+    PATH_SUFFIXES lib lib64)
+
+if(HDF5_C_LIB)
+    message(STATUS "Found HDF5 C library: ${HDF5_C_LIB}")
+else()
+    message(STATUS "Using HDF5_LIBRARIES: ${HDF5_LIBRARIES}")
+endif()
+
 # Find CGNS
 find_path(CGNS_INCLUDE_DIR cgnslib.h
     HINTS ${CGNS_DIR}/include /usr/local/include /usr/include)
@@ -140,6 +160,14 @@ add_executable(zhijian src/main.cpp)
 # For static library linking with circular dependencies, use linker groups
 # This tells the linker to iterate through libraries until all symbols are resolved
 # Format: -Wl,--start-group <libs> -Wl,--end-group
+
+# Build HDF5 link list - ensure C library is included
+set(HDF5_LINK_LIBS ${HDF5_LIBRARIES})
+if(HDF5_C_LIB)
+    # Prepend explicit C library to ensure H5Literate is found
+    list(INSERT HDF5_LINK_LIBS 0 ${HDF5_C_LIB})
+endif()
+
 target_link_libraries(zhijian
     zhijian_lib
     ${MPI_CXX_LIBRARIES}
@@ -148,7 +176,7 @@ target_link_libraries(zhijian
     ${METIS_LIBRARY}
     ${GKLIB_LIBRARY}
     ${CGNS_LIBRARY}
-    ${HDF5_LIBRARIES}
+    ${HDF5_LINK_LIBS}
     -Wl,--end-group
     m
 )
@@ -165,7 +193,7 @@ message(STATUS "C++ compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "CUDA compiler: ${CMAKE_CUDA_COMPILER}")
 message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 message(STATUS "MPI: ${MPI_CXX_LIBRARIES}")
-message(STATUS "HDF5: ${HDF5_LIBRARIES}")
+message(STATUS "HDF5: ${HDF5_LINK_LIBS}")
 message(STATUS "CGNS: ${CGNS_LIBRARY}")
 message(STATUS "METIS: ${METIS_LIBRARY}")
 message(STATUS "GKlib: ${GKLIB_LIBRARY}")
