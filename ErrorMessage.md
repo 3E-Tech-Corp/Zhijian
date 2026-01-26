@@ -1,4 +1,32 @@
-[ 92%] Linking CUDA device code CMakeFiles/zhijian.dir/cmake_device_link.o
+--
+-- === Zhijian Configuration Summary ===
+-- Build type: Release
+-- C++ compiler: /usr/bin/g++
+-- CUDA compiler: /kuhpc/sw/nvhpc/Linux_x86_64/25.3/cuda/12.8/bin/nvcc
+-- CUDA architectures: 70;75;80;86;89;90
+-- MPI: /kuhpc/sw/openmpi/5.0.5/gcc/11.4/lib/libmpi.so
+-- HDF5: /kuhpc/sw/hdf5/1.14.5/gcc/11.4/lib/libhdf5.so;/usr/lib64/libz.so;/usr/lib64/libdl.a;/usr/lib64/libm.so;/kuhpc/sw/hdf5/1.14.5/gcc/11.4/lib/libhdf5_cpp.so;/kuhpc/sw/hdf5/1.14.5/gcc/11.4/lib/libhdf5.so;/usr/lib64/libz.so;/usr/lib64/libdl.a;/usr/lib64/libm.so
+-- CGNS: /home/z651w035/hpmusic/contrib/cgnslib/lib/libcgns.a
+-- METIS: /home/z651w035/local/metis/lib
+-- =====================================
+--
+-- Configuring done (4.3s)
+CMake Warning at CMakeLists.txt:123 (target_link_libraries):
+  Target "zhijian" requests linking to directory
+  "/home/z651w035/local/metis/lib".  Targets may link only to libraries.
+  CMake is dropping the item.
+
+
+CMake Warning at CMakeLists.txt:123 (target_link_libraries):
+  Target "zhijian" requests linking to directory
+  "/home/z651w035/local/metis/lib".  Targets may link only to libraries.
+  CMake is dropping the item.
+
+
+-- Generating done (3.4s)
+-- Build files have been written to: /home/z651w035/codes/Zhijian/release
+[ 76%] Built target zhijian_lib
+[ 84%] Linking CUDA device code CMakeFiles/zhijian.dir/cmake_device_link.o
 nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_70)
 nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_70)
 nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_70)
@@ -17,7 +45,7 @@ nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching 
 nvlink warning : Skipping incompatible '/usr/lib64/libdl.a' when searching for -ldl (target: sm_90)
 nvlink warning : Skipping incompatible '/usr/lib64/librt.a' when searching for -lrt (target: sm_90)
 nvlink warning : Skipping incompatible '/usr/lib64/libpthread.a' when searching for -lpthread (target: sm_90)
-[100%] Linking CXX executable zhijian
+[ 92%] Linking CXX executable zhijian
 /usr/bin/ld: libzhijian_lib.a(partitioner.cpp.o): in function `zhijian::MeshPartitioner::partition(zhijian::Mesh&, int)':
 partitioner.cpp:(.text+0x19c7): undefined reference to `METIS_SetDefaultOptions'
 /usr/bin/ld: partitioner.cpp:(.text+0x1a20): undefined reference to `METIS_PartGraphKway'
