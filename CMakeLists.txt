@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Zhijian LANGUAGES CXX CUDA)
+project(Zhijian LANGUAGES C CXX CUDA)
 
 # C++ and CUDA standards
 set(CMAKE_CXX_STANDARD 17)
@@ -154,6 +154,11 @@ target_link_libraries(zhijian_lib
     CUDA::cublas
 )
 
+# HDF5 compatibility shim for older CGNS libraries
+# Provides H5Literate symbol for CGNS built against HDF5 < 1.12
+add_library(hdf5_compat STATIC src/hdf5_compat.c)
+target_include_directories(hdf5_compat PRIVATE ${HDF5_INCLUDE_DIRS})
+
 # Main executable
 add_executable(zhijian src/main.cpp)
 
@@ -176,6 +181,7 @@ target_link_libraries(zhijian
     ${METIS_LIBRARY}
     ${GKLIB_LIBRARY}
     ${CGNS_LIBRARY}
+    hdf5_compat
     ${HDF5_LINK_LIBS}
     -Wl,--end-group
     m
