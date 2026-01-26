@@ -1,4 +1,5 @@
 #include "gpu/kernels.hpp"
+#include "common/cuda_utils.hpp"
 #include "physics/euler.hpp"
 #include "physics/navierstokes.hpp"
 // Removed CUB dependency to avoid version conflicts with Thrust/ROCm
