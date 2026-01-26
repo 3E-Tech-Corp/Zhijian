@@ -76,8 +76,12 @@ endif()
 if(GKLIB_LIBRARY)
     message(STATUS "Found GKlib: ${GKLIB_LIBRARY}")
 else()
-    message(WARNING "GKlib not found. METIS may require GKlib for linking. "
-        "If you get undefined reference errors for gk_* symbols, set GKLIB_DIR or install GKlib.")
+    message(FATAL_ERROR "GKlib library not found. METIS requires GKlib for linking.\n"
+        "Please set -DGKLIB_LIBRARY=/path/to/libGKlib.a when running cmake.\n"
+        "GKlib is typically built alongside METIS. Check:\n"
+        "  - ${_metis_lib_dir}/libGKlib.a\n"
+        "  - The METIS build directory (e.g., build/libGKlib.a)\n"
+        "  - Or rebuild METIS with: make config shared=1 prefix=/your/prefix && make install")
 endif()
 
 # Include directories
@@ -130,32 +134,23 @@ target_link_libraries(zhijian_lib
     CUDA::cublas
 )
 
-# Collect external libraries in correct order (dependencies must come after dependents)
-# For static library linking, the library providing symbols must come AFTER the library that needs them
-set(EXTERNAL_LIBS
-    ${MPI_CXX_LIBRARIES}
-    ${METIS_LIBRARY}     # METIS (needed by partitioner.cpp)
-)
-
-# Add GKlib if found (METIS may depend on it)
-if(GKLIB_LIBRARY)
-    list(APPEND EXTERNAL_LIBS ${GKLIB_LIBRARY})
-endif()
-
-# CGNS depends on HDF5, so CGNS must come before HDF5
-list(APPEND EXTERNAL_LIBS
-    ${CGNS_LIBRARY}
-    ${HDF5_LIBRARIES}        # HDF5 libraries (contains H5Literate needed by CGNS)
-)
-
-# Add math library
-list(APPEND EXTERNAL_LIBS m)
-
-# Main executable - link all libraries here for proper symbol resolution
+# Main executable
 add_executable(zhijian src/main.cpp)
+
+# For static library linking with circular dependencies, use linker groups
+# This tells the linker to iterate through libraries until all symbols are resolved
+# Format: -Wl,--start-group <libs> -Wl,--end-group
 target_link_libraries(zhijian
     zhijian_lib
-    ${EXTERNAL_LIBS}
+    ${MPI_CXX_LIBRARIES}
+    # Use linker group for static libraries with interdependencies
+    -Wl,--start-group
+    ${METIS_LIBRARY}
+    ${GKLIB_LIBRARY}
+    ${CGNS_LIBRARY}
+    ${HDF5_LIBRARIES}
+    -Wl,--end-group
+    m
 )
 
 # Install
