@@ -22,10 +22,6 @@ set(CMAKE_CUDA_ARCHITECTURES 70 75 80 86 89 90)
 # Find required packages
 find_package(MPI REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C CXX)
-# Ensure HDF5 component libraries are available for explicit linking
-if(NOT HDF5_C_LIBRARIES)
-    set(HDF5_C_LIBRARIES ${HDF5_LIBRARIES})
-endif()
 find_package(CUDAToolkit REQUIRED)
 
 # Find CGNS
@@ -59,9 +55,12 @@ if(METIS_LIBRARY AND IS_DIRECTORY "${METIS_LIBRARY}")
     endif()
 endif()
 
-# Find GKlib (METIS dependency)
-find_library(GKLIB_LIBRARY GKlib
-    HINTS ${METIS_DIR}/lib ${GKLIB_DIR}/lib /usr/local/lib /usr/lib)
+# Find GKlib (METIS dependency) - try multiple possible library names
+# GKlib is usually installed alongside METIS
+get_filename_component(_metis_lib_dir "${METIS_LIBRARY}" DIRECTORY)
+find_library(GKLIB_LIBRARY
+    NAMES GKlib gklib gk
+    HINTS ${_metis_lib_dir} ${METIS_DIR}/lib ${GKLIB_DIR}/lib /usr/local/lib /usr/lib)
 
 if(NOT METIS_INCLUDE_DIR OR NOT METIS_LIBRARY)
     message(FATAL_ERROR "METIS library not found. Set METIS_DIR to the METIS installation directory.")
@@ -76,6 +75,9 @@ endif()
 
 if(GKLIB_LIBRARY)
     message(STATUS "Found GKlib: ${GKLIB_LIBRARY}")
+else()
+    message(WARNING "GKlib not found. METIS may require GKlib for linking. "
+        "If you get undefined reference errors for gk_* symbols, set GKLIB_DIR or install GKlib.")
 endif()
 
 # Include directories
@@ -143,8 +145,7 @@ endif()
 # CGNS depends on HDF5, so CGNS must come before HDF5
 list(APPEND EXTERNAL_LIBS
     ${CGNS_LIBRARY}
-    ${HDF5_C_LIBRARIES}      # HDF5 C library (contains H5Literate)
-    ${HDF5_CXX_LIBRARIES}    # HDF5 C++ library
+    ${HDF5_LIBRARIES}        # HDF5 libraries (contains H5Literate needed by CGNS)
 )
 
 # Add math library
@@ -172,5 +173,6 @@ message(STATUS "MPI: ${MPI_CXX_LIBRARIES}")
 message(STATUS "HDF5: ${HDF5_LIBRARIES}")
 message(STATUS "CGNS: ${CGNS_LIBRARY}")
 message(STATUS "METIS: ${METIS_LIBRARY}")
+message(STATUS "GKlib: ${GKLIB_LIBRARY}")
 message(STATUS "=====================================")
 message(STATUS "")
