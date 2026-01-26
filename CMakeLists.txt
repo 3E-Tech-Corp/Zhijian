@@ -22,6 +22,10 @@ set(CMAKE_CUDA_ARCHITECTURES 70 75 80 86 89 90)
 # Find required packages
 find_package(MPI REQUIRED)
 find_package(HDF5 REQUIRED COMPONENTS C CXX)
+# Ensure HDF5 component libraries are available for explicit linking
+if(NOT HDF5_C_LIBRARIES)
+    set(HDF5_C_LIBRARIES ${HDF5_LIBRARIES})
+endif()
 find_package(CUDAToolkit REQUIRED)
 
 # Find CGNS
@@ -40,12 +44,34 @@ find_path(METIS_INCLUDE_DIR metis.h
 find_library(METIS_LIBRARY metis
     HINTS ${METIS_DIR}/lib /usr/local/lib /usr/lib)
 
+# Validate METIS_LIBRARY - if user passed a directory instead of library file, search inside it
+if(METIS_LIBRARY AND IS_DIRECTORY "${METIS_LIBRARY}")
+    message(STATUS "METIS_LIBRARY points to directory, searching for library inside...")
+    set(_metis_search_dir "${METIS_LIBRARY}")
+    unset(METIS_LIBRARY CACHE)
+    find_library(METIS_LIBRARY NAMES metis
+        PATHS "${_metis_search_dir}"
+        NO_DEFAULT_PATH)
+    if(NOT METIS_LIBRARY)
+        # Try again with default paths
+        find_library(METIS_LIBRARY metis
+            HINTS ${METIS_DIR}/lib /usr/local/lib /usr/lib)
+    endif()
+endif()
+
 # Find GKlib (METIS dependency)
 find_library(GKLIB_LIBRARY GKlib
     HINTS ${METIS_DIR}/lib ${GKLIB_DIR}/lib /usr/local/lib /usr/lib)
 
 if(NOT METIS_INCLUDE_DIR OR NOT METIS_LIBRARY)
-    message(FATAL_ERROR "METIS library not found. Set METIS_DIR.")
+    message(FATAL_ERROR "METIS library not found. Set METIS_DIR to the METIS installation directory.")
+endif()
+
+# Verify METIS_LIBRARY is a file
+if(NOT EXISTS "${METIS_LIBRARY}" OR IS_DIRECTORY "${METIS_LIBRARY}")
+    message(FATAL_ERROR "METIS_LIBRARY='${METIS_LIBRARY}' is not a valid library file. "
+        "Please set METIS_DIR to the installation prefix (e.g., /usr/local) or "
+        "METIS_LIBRARY to the full path of libmetis.a or libmetis.so")
 endif()
 
 if(GKLIB_LIBRARY)
@@ -103,17 +129,23 @@ target_link_libraries(zhijian_lib
 )
 
 # Collect external libraries in correct order (dependencies must come after dependents)
+# For static library linking, the library providing symbols must come AFTER the library that needs them
 set(EXTERNAL_LIBS
     ${MPI_CXX_LIBRARIES}
-    ${CGNS_LIBRARY}      # CGNS depends on HDF5, so CGNS must come first
-    ${HDF5_LIBRARIES}    # HDF5 comes after CGNS
-    ${METIS_LIBRARY}     # METIS depends on GKlib
+    ${METIS_LIBRARY}     # METIS (needed by partitioner.cpp)
 )
 
-# Add GKlib if found
+# Add GKlib if found (METIS may depend on it)
 if(GKLIB_LIBRARY)
     list(APPEND EXTERNAL_LIBS ${GKLIB_LIBRARY})
 endif()
+
+# CGNS depends on HDF5, so CGNS must come before HDF5
+list(APPEND EXTERNAL_LIBS
+    ${CGNS_LIBRARY}
+    ${HDF5_C_LIBRARIES}      # HDF5 C library (contains H5Literate)
+    ${HDF5_CXX_LIBRARIES}    # HDF5 C++ library
+)
 
 # Add math library
 list(APPEND EXTERNAL_LIBS m)
