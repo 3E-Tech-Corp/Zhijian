@@ -17,7 +17,13 @@ set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 # CUDA architecture (adjust based on target GPU)
-set(CMAKE_CUDA_ARCHITECTURES 70 75 80 86 89 90)
+# Default to modern architectures; override with -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90"
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89 90)
+endif()
+
+# Suppress deprecation warnings for older architectures
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-deprecated-gpu-targets")
 
 # Find required packages
 find_package(MPI REQUIRED)
@@ -148,10 +154,14 @@ set_target_properties(zhijian_lib PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-# Link libraries to zhijian_lib
+# Suppress CUB/Thrust version conflict when ROCm headers are in the include path
+target_compile_definitions(zhijian_lib PRIVATE THRUST_IGNORE_CUB_VERSION_CHECK)
+
+# Link libraries to zhijian_lib — use MPI::MPI_CXX target for proper include propagation
 target_link_libraries(zhijian_lib
     CUDA::cudart
     CUDA::cublas
+    MPI::MPI_CXX
 )
 
 # HDF5 compatibility shim for older CGNS libraries
