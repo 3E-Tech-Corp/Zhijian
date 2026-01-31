@@ -6,8 +6,8 @@
 
 namespace zhijian {
 
-// atomicAdd for double — required for compute capability < 6.0,
-// and for compilers that don't provide the built-in double overload.
+// atomicAdd for double — only compiled by nvcc (CUDA files)
+#ifdef __CUDACC__
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 600
 static __inline__ __device__ double atomicAdd_double(double* address, double val) {
     unsigned long long int* address_as_ull = (unsigned long long int*)address;
@@ -24,6 +24,7 @@ static __inline__ __device__ double atomicAdd_double(double* address, double val
     return atomicAdd(address, val);
 }
 #endif
+#endif // __CUDACC__
 
 // CUDA error checking macro
 #define CUDA_CHECK(call)                                                       \

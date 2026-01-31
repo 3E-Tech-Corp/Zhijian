@@ -122,7 +122,7 @@ __global__ void transformGradientsKernel(
 
     int elem = idx / (n_sp * N_VARS);
     int sp = (idx / N_VARS) % n_sp;
-    int var = idx % N_VARS;
+    // int var = idx % N_VARS;  // unused — index into vars handled via sp offset
 
     int jinv_idx = elem * n_sp * 4 + sp * 4;
     Real dxidx = Jinv[jinv_idx + 0];
