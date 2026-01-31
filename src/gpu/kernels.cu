@@ -802,7 +802,7 @@ __global__ void computeResidualNormKernel(
     }
 
     if (tid == 0) {
-        atomicAdd(norm_sq, shared[0]);
+        atomicAdd_double(norm_sq, shared[0]);
     }
 }
 
