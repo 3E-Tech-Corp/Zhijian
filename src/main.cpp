@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <string>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -30,14 +31,25 @@ void printUsage(const char* prog_name) {
     std::cout << "Usage: " << prog_name << " [options]\n"
               << "\n"
               << "Options:\n"
-              << "  -m, --mesh <file>       Input mesh file (CGNS format)\n"
+              << "  -m, --mesh <file>       Input mesh file (CGNS or Gmsh .msh format)\n"
               << "  -c, --config <file>     Configuration file\n"
               << "  -r, --restart <file>    Restart from file\n"
               << "  -o, --output <dir>      Output directory (default: ./output)\n"
               << "  -h, --help              Show this help message\n"
               << "\n"
               << "Example:\n"
-              << "  mpirun -np 4 " << prog_name << " -m naca0012.cgns -c config.txt\n";
+              << "  mpirun -np 4 " << prog_name << " -m naca0012.cgns -c config.txt\n"
+              << "  " << prog_name << " -m mesh.msh -c config.txt\n";
+}
+
+// Get file extension (lowercase)
+std::string getFileExtension(const std::string& filename) {
+    auto dot = filename.rfind('.');
+    if (dot == std::string::npos) return "";
+    std::string ext = filename.substr(dot);
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return ext;
 }
 
 ProgramOptions parseArgs(int argc, char* argv[]) {
@@ -192,18 +204,39 @@ int main(int argc, char* argv[]) {
             std::cout << "Loading mesh: " << opts.mesh_file << "\n";
         }
 
+        std::string mesh_ext = getFileExtension(opts.mesh_file);
+
         if (mpi.size() > 1) {
-            // Parallel mesh distribution
-            ParallelMesh par_mesh;
-            par_mesh.distribute(opts.mesh_file, mpi);
-            mesh = par_mesh.localMesh();
+            // Parallel mesh distribution (CGNS path; Gmsh requires serial read)
+            if (mesh_ext == ".msh") {
+                // Gmsh: read on all ranks (serial reader), then partition
+                GmshReader reader;
+                if (!reader.read(opts.mesh_file, mesh)) {
+                    std::cerr << "Error: " << reader.errorMessage() << std::endl;
+                    MPICommunicator::finalize();
+                    return 1;
+                }
+            } else {
+                ParallelMesh par_mesh;
+                par_mesh.distribute(opts.mesh_file, mpi);
+                mesh = par_mesh.localMesh();
+            }
         } else {
             // Single process: read mesh directly
-            CGNSReader reader;
-            if (!reader.read(opts.mesh_file, mesh)) {
-                std::cerr << "Error: " << reader.errorMessage() << std::endl;
-                MPICommunicator::finalize();
-                return 1;
+            if (mesh_ext == ".msh") {
+                GmshReader reader;
+                if (!reader.read(opts.mesh_file, mesh)) {
+                    std::cerr << "Error: " << reader.errorMessage() << std::endl;
+                    MPICommunicator::finalize();
+                    return 1;
+                }
+            } else {
+                CGNSReader reader;
+                if (!reader.read(opts.mesh_file, mesh)) {
+                    std::cerr << "Error: " << reader.errorMessage() << std::endl;
+                    MPICommunicator::finalize();
+                    return 1;
+                }
             }
         }
 

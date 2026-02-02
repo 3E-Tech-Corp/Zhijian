@@ -148,6 +148,58 @@ private:
     bool readBoundaryConditions(int file_id, int base_id, int zone_id, Mesh& mesh);
 };
 
+// Gmsh MSH mesh reader (v2.2 and v4.1 ASCII)
+class GmshReader {
+public:
+    GmshReader() = default;
+
+    // Read mesh from Gmsh .msh file
+    // Populates nodes, elements, faces, and boundary conditions.
+    // Calls mesh.buildFaces() and mesh.computeGeometry() internally.
+    bool read(const std::string& filename, Mesh& mesh);
+
+    // Apply stored boundary tags to faces (called internally after buildFaces)
+    void applyBoundaryTags(Mesh& mesh);
+
+    // Get error message
+    const std::string& errorMessage() const { return error_msg_; }
+
+private:
+    std::string error_msg_;
+
+    // Gmsh node-tag -> 0-based index mapping (may be non-contiguous in file)
+    std::map<Index, Index> node_id_map_;
+
+    // Boundary edge lookup: sorted vertex pair -> physical tag
+    std::map<std::pair<Index, Index>, int> boundary_edge_tags_;
+
+    // Temporary boundary edge storage used during parsing
+    struct BoundaryEdge {
+        std::vector<Index> nodes;   // 0-based node IDs (2 for Q1 line, 3 for Q2)
+        int physical_tag;
+    };
+
+    // Version-specific section readers
+    bool readNodesV2(std::ifstream& file, Mesh& mesh);
+    bool readNodesV4(std::ifstream& file, Mesh& mesh);
+    bool readElementsV2(std::ifstream& file, Mesh& mesh,
+                        std::vector<BoundaryEdge>& boundary_edges);
+    bool readElementsV4(std::ifstream& file, Mesh& mesh,
+                        std::vector<BoundaryEdge>& boundary_edges,
+                        const std::map<int, int>& entity_phys_map);
+
+    // Build BCInfo entries and the boundary_edge_tags_ lookup
+    void mapBoundaryConditions(Mesh& mesh,
+                               const std::map<std::pair<int,int>, std::string>& physical_names,
+                               const std::vector<BoundaryEdge>& boundary_edges);
+
+    // Infer BCType from a physical group name (case-insensitive heuristics)
+    static BCType inferBCType(const std::string& name);
+
+    // Number of nodes for a given Gmsh element type (-1 if unsupported)
+    static int gmshElemNumNodes(int elm_type);
+};
+
 // Mesh partitioner using METIS
 class MeshPartitioner {
 public:
