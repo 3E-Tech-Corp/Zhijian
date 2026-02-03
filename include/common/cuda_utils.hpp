@@ -6,25 +6,8 @@
 
 namespace zhijian {
 
-// atomicAdd for double — only compiled by nvcc (CUDA files)
-#ifdef __CUDACC__
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 600
-static __inline__ __device__ double atomicAdd_double(double* address, double val) {
-    unsigned long long int* address_as_ull = (unsigned long long int*)address;
-    unsigned long long int old = *address_as_ull, assumed;
-    do {
-        assumed = old;
-        old = atomicCAS(address_as_ull, assumed,
-                        __double_as_longlong(val + __longlong_as_double(assumed)));
-    } while (assumed != old);
-    return __longlong_as_double(old);
-}
-#else
-static __inline__ __device__ double atomicAdd_double(double* address, double val) {
-    return atomicAdd(address, val);
-}
-#endif
-#endif // __CUDACC__
+// Note: atomicAdd_double and other CUDA device intrinsics are in
+// cuda_device.cuh — include that header from .cu files only.
 
 // CUDA error checking macro
 #define CUDA_CHECK(call)                                                       \
