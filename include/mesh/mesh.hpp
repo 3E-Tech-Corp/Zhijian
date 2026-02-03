@@ -183,10 +183,12 @@ private:
     bool readNodesV2(std::ifstream& file, Mesh& mesh);
     bool readNodesV4(std::ifstream& file, Mesh& mesh);
     bool readElementsV2(std::ifstream& file, Mesh& mesh,
-                        std::vector<BoundaryEdge>& boundary_edges);
+                        std::vector<BoundaryEdge>& boundary_edges,
+                        std::map<int, int>& element_type_counts);
     bool readElementsV4(std::ifstream& file, Mesh& mesh,
                         std::vector<BoundaryEdge>& boundary_edges,
-                        const std::map<int, int>& entity_phys_map);
+                        const std::map<int, int>& entity_phys_map,
+                        std::map<int, int>& element_type_counts);
 
     // Build BCInfo entries and the boundary_edge_tags_ lookup
     void mapBoundaryConditions(Mesh& mesh,
@@ -198,6 +200,12 @@ private:
 
     // Number of nodes for a given Gmsh element type (-1 if unsupported)
     static int gmshElemNumNodes(int elm_type);
+
+    // Human-readable name for a Gmsh element type
+    static const char* gmshElemTypeName(int elm_type);
+
+    // True if element type is 3D (tet, hex, prism, pyramid)
+    static bool is3DElement(int elm_type);
 };
 
 // Mesh partitioner using METIS

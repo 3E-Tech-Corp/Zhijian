@@ -17,12 +17,54 @@ int GmshReader::gmshElemNumNodes(int elm_type) {
         case 1:  return 2;   // 2-node line
         case 2:  return 3;   // 3-node triangle
         case 3:  return 4;   // 4-node quadrilateral
+        case 4:  return 4;   // 4-node tetrahedron (3D — detected but rejected)
+        case 5:  return 8;   // 8-node hexahedron (3D — detected but rejected)
+        case 6:  return 6;   // 6-node prism (3D — detected but rejected)
+        case 7:  return 5;   // 5-node pyramid (3D — detected but rejected)
         case 8:  return 3;   // 3-node second-order line
         case 9:  return 6;   // 6-node second-order triangle
         case 10: return 9;   // 9-node second-order quadrilateral
+        case 11: return 10;  // 10-node second-order tetrahedron (3D)
+        case 12: return 27;  // 27-node second-order hexahedron (3D)
+        case 13: return 18;  // 18-node second-order prism (3D)
+        case 14: return 14;  // 14-node second-order pyramid (3D)
         case 15: return 1;   // 1-node point
+        case 16: return 8;   // 8-node second-order quadrilateral (serendipity)
+        case 20: return 9;   // 9-node third-order triangle
+        case 21: return 10;  // 10-node third-order triangle
+        case 36: return 16;  // 16-node fourth-order quadrilateral
         default: return -1;  // unsupported
     }
+}
+
+const char* GmshReader::gmshElemTypeName(int elm_type) {
+    switch (elm_type) {
+        case 1:  return "2-node line";
+        case 2:  return "3-node triangle";
+        case 3:  return "4-node quadrilateral";
+        case 4:  return "4-node tetrahedron";
+        case 5:  return "8-node hexahedron";
+        case 6:  return "6-node prism";
+        case 7:  return "5-node pyramid";
+        case 8:  return "3-node line (order 2)";
+        case 9:  return "6-node triangle (order 2)";
+        case 10: return "9-node quadrilateral (order 2)";
+        case 11: return "10-node tetrahedron (order 2)";
+        case 12: return "27-node hexahedron (order 2)";
+        case 13: return "18-node prism (order 2)";
+        case 14: return "14-node pyramid (order 2)";
+        case 15: return "1-node point";
+        case 16: return "8-node quadrilateral (serendipity)";
+        case 20: return "9-node triangle (order 3)";
+        case 21: return "10-node triangle (order 3)";
+        case 36: return "16-node quadrilateral (order 4)";
+        default: return "unknown";
+    }
+}
+
+bool GmshReader::is3DElement(int elm_type) {
+    return elm_type == 4 || elm_type == 5 || elm_type == 6 || elm_type == 7 ||
+           elm_type == 11 || elm_type == 12 || elm_type == 13 || elm_type == 14;
 }
 
 BCType GmshReader::inferBCType(const std::string& name) {
@@ -107,6 +149,9 @@ bool GmshReader::read(const std::string& filename, Mesh& mesh) {
 
     // Collected boundary edges
     std::vector<BoundaryEdge> boundary_edges;
+
+    // Track element types encountered for diagnostic reporting
+    std::map<int, int> element_type_counts;
 
     // Clear any state from a previous read
     node_id_map_.clear();
@@ -203,9 +248,9 @@ bool GmshReader::read(const std::string& filename, Mesh& mesh) {
         // ---- $Elements ----
         else if (line.find("$Elements") != std::string::npos) {
             if (version >= 4.0) {
-                elements_read = readElementsV4(file, mesh, boundary_edges, entity_phys_map);
+                elements_read = readElementsV4(file, mesh, boundary_edges, entity_phys_map, element_type_counts);
             } else {
-                elements_read = readElementsV2(file, mesh, boundary_edges);
+                elements_read = readElementsV2(file, mesh, boundary_edges, element_type_counts);
             }
             if (!elements_read) return false;
         }
@@ -230,7 +275,27 @@ bool GmshReader::read(const std::string& filename, Mesh& mesh) {
         return false;
     }
     if (mesh.numElements() == 0) {
-        error_msg_ = "No 2D elements (triangles/quads) found in Gmsh file";
+        std::string diag = "No 2D elements (triangles/quads) found in Gmsh file.";
+        if (element_type_counts.empty()) {
+            diag += " The $Elements section contained no elements at all.";
+        } else {
+            diag += "\nElement types found in file:";
+            bool has_3d = false;
+            for (const auto& kv : element_type_counts) {
+                diag += "\n  Type " + std::to_string(kv.first) + " ("
+                     + gmshElemTypeName(kv.first) + "): " + std::to_string(kv.second);
+                if (is3DElement(kv.first)) has_3d = true;
+            }
+            if (has_3d) {
+                diag += "\n\nThis appears to be a 3D mesh. Zhijian is a 2D solver and "
+                        "requires triangles (type 2/9) or quadrilaterals (type 3/10/16). "
+                        "Please regenerate the mesh as 2D, or export only the surface elements.";
+            } else {
+                diag += "\n\nNone of the element types above are supported 2D elements. "
+                        "Zhijian requires triangles (type 2/9) or quadrilaterals (type 3/10/16).";
+            }
+        }
+        error_msg_ = diag;
         return false;
     }
 
@@ -327,7 +392,8 @@ bool GmshReader::readNodesV4(std::ifstream& file, Mesh& mesh) {
 // ============================================================================
 
 bool GmshReader::readElementsV2(std::ifstream& file, Mesh& mesh,
-                                 std::vector<BoundaryEdge>& boundary_edges) {
+                                 std::vector<BoundaryEdge>& boundary_edges,
+                                 std::map<int, int>& element_type_counts) {
     std::string line;
     std::getline(file, line);
     int num_elements = std::stoi(line);
@@ -338,6 +404,7 @@ bool GmshReader::readElementsV2(std::ifstream& file, Mesh& mesh,
 
         int elm_number, elm_type, num_tags;
         iss >> elm_number >> elm_type >> num_tags;
+        element_type_counts[elm_type]++;
 
         // First tag is the physical group; second is the elementary entity
         int physical_tag = 0;
@@ -417,7 +484,8 @@ bool GmshReader::readElementsV2(std::ifstream& file, Mesh& mesh,
 
 bool GmshReader::readElementsV4(std::ifstream& file, Mesh& mesh,
                                  std::vector<BoundaryEdge>& boundary_edges,
-                                 const std::map<int, int>& entity_phys_map) {
+                                 const std::map<int, int>& entity_phys_map,
+                                 std::map<int, int>& element_type_counts) {
     std::string line;
     std::getline(file, line);
     std::istringstream hdr(line);
@@ -429,6 +497,7 @@ bool GmshReader::readElementsV4(std::ifstream& file, Mesh& mesh,
         std::istringstream bss(line);
         int entity_dim, entity_tag, elm_type, elems_in_block;
         bss >> entity_dim >> entity_tag >> elm_type >> elems_in_block;
+        element_type_counts[elm_type] += elems_in_block;
 
         int nn = gmshElemNumNodes(elm_type);
 
