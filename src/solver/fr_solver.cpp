@@ -153,6 +153,46 @@ void FRSolver::allocateGPUMemory() {
 
     gpu_data_->diff_eta.resize(diff_eta_flat.size());
     gpu_data_->diff_eta.copyToDevice(diff_eta_flat);
+
+    // Upload interpolation-to-flux-points matrix
+    // For quads: 4 edges, each with n_fp flux points, interpolated from n_sp solution points
+    int n_edges = 4;
+    size_t interp_size = n_edges * n_fp_per_edge * n_sp;
+    std::vector<Real> interp_flat(interp_size, 0.0);
+    for (int e = 0; e < n_edges; ++e) {
+        const auto& interp_e = ops.interpToFlux(e);
+        for (int fp = 0; fp < n_fp_per_edge; ++fp) {
+            for (int sp_idx = 0; sp_idx < n_sp; ++sp_idx) {
+                interp_flat[e * n_fp_per_edge * n_sp + fp * n_sp + sp_idx] =
+                    interp_e[fp][sp_idx];
+            }
+        }
+    }
+    gpu_data_->interp_fp.resize(interp_flat.size());
+    gpu_data_->interp_fp.copyToDevice(interp_flat);
+
+    // Upload correction function derivatives
+    const auto& corr = ops.correctionDeriv();
+    size_t corr_size = corr.size() * corr[0].size();
+    std::vector<Real> corr_flat(corr_size);
+    for (size_t i = 0; i < corr.size(); ++i) {
+        for (size_t j = 0; j < corr[i].size(); ++j) {
+            corr_flat[i * corr[i].size() + j] = corr[i][j];
+        }
+    }
+    gpu_data_->corr_deriv.resize(corr_flat.size());
+    gpu_data_->corr_deriv.copyToDevice(corr_flat);
+
+    // Upload face normals
+    Index n_faces = mesh_->numFaces();
+    std::vector<Real> normals_flat(n_faces * 2);
+    for (Index f = 0; f < n_faces; ++f) {
+        Vec2 n = mesh_->faceNormal(f);
+        normals_flat[2 * f]     = n.x;
+        normals_flat[2 * f + 1] = n.y;
+    }
+    gpu_data_->face_normals.resize(normals_flat.size());
+    gpu_data_->face_normals.copyToDevice(normals_flat);
 }
 
 void FRSolver::setInitialCondition(const std::function<State(Vec2)>& ic_func) {
