@@ -206,6 +206,12 @@ private:
 
     // True if element type is 3D (tet, hex, prism, pyramid)
     static bool is3DElement(int elm_type);
+
+    // True if element type is 2D (tri, quad, and higher-order variants)
+    static bool is2DElement(int elm_type);
+
+    // Convert 8-node serendipity quad to 9-node biquadratic by adding center node
+    static Index addSerendipityCenterNode(Mesh& mesh, const std::vector<Index>& node_ids);
 };
 
 // Mesh partitioner using METIS

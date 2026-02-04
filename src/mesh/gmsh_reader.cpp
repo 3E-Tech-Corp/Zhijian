@@ -67,6 +67,44 @@ bool GmshReader::is3DElement(int elm_type) {
            elm_type == 11 || elm_type == 12 || elm_type == 13 || elm_type == 14;
 }
 
+bool GmshReader::is2DElement(int elm_type) {
+    return elm_type == 2 || elm_type == 3 || elm_type == 9 || elm_type == 10 ||
+           elm_type == 16 || elm_type == 20 || elm_type == 21 || elm_type == 36;
+}
+
+Index GmshReader::addSerendipityCenterNode(Mesh& mesh, const std::vector<Index>& node_ids) {
+    // Synthesize the center node for an 8-node serendipity quad by converting
+    // to a 9-node biquadratic quad.  For a serendipity quad the Gmsh node
+    // ordering is:
+    //
+    //   3 -- 6 -- 2
+    //   |         |
+    //   7    ?    5
+    //   |         |
+    //   0 -- 4 -- 1
+    //
+    // The proper conversion uses:
+    //   center = 0.5*(n4+n5+n6+n7) - 0.25*(n0+n1+n2+n3)
+    // which is exact for bilinear geometry.
+
+    const Vec2& n0 = mesh.node(node_ids[0]);
+    const Vec2& n1 = mesh.node(node_ids[1]);
+    const Vec2& n2 = mesh.node(node_ids[2]);
+    const Vec2& n3 = mesh.node(node_ids[3]);
+    const Vec2& n4 = mesh.node(node_ids[4]);
+    const Vec2& n5 = mesh.node(node_ids[5]);
+    const Vec2& n6 = mesh.node(node_ids[6]);
+    const Vec2& n7 = mesh.node(node_ids[7]);
+
+    Vec2 center;
+    center.x = 0.5 * (n4.x + n5.x + n6.x + n7.x) - 0.25 * (n0.x + n1.x + n2.x + n3.x);
+    center.y = 0.5 * (n4.y + n5.y + n6.y + n7.y) - 0.25 * (n0.y + n1.y + n2.y + n3.y);
+
+    Index new_idx = static_cast<Index>(mesh.nodes().size());
+    mesh.nodes().push_back(center);
+    return new_idx;
+}
+
 BCType GmshReader::inferBCType(const std::string& name) {
     std::string lower = name;
     std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -470,7 +508,19 @@ bool GmshReader::readElementsV2(std::ifstream& file, Mesh& mesh,
             elem.partition = 0;
             mesh.elements().push_back(std::move(elem));
         }
-        // else: skip (e.g. type 15 = point)
+        else if (elm_type == 16) {
+            // 8-node serendipity quad → convert to 9-node biquadratic quad
+            // by synthesizing the center node
+            Index center = addSerendipityCenterNode(mesh, node_ids);
+            node_ids.push_back(center);
+            Element elem;
+            elem.type = ElementType::Quadrilateral;
+            elem.order = 2;
+            elem.node_ids = node_ids;
+            elem.partition = 0;
+            mesh.elements().push_back(std::move(elem));
+        }
+        // else: skip (e.g. type 15 = point, 3D elements)
     }
 
     // consume $EndElements
@@ -560,6 +610,18 @@ bool GmshReader::readElementsV4(std::ifstream& file, Mesh& mesh,
                 mesh.elements().push_back(std::move(elem));
             }
             else if (elm_type == 10) {
+                Element elem;
+                elem.type = ElementType::Quadrilateral;
+                elem.order = 2;
+                elem.node_ids = node_ids;
+                elem.partition = 0;
+                mesh.elements().push_back(std::move(elem));
+            }
+            else if (elm_type == 16) {
+                // 8-node serendipity quad → convert to 9-node biquadratic quad
+                // by synthesizing the center node
+                Index center = addSerendipityCenterNode(mesh, node_ids);
+                node_ids.push_back(center);
                 Element elem;
                 elem.type = ElementType::Quadrilateral;
                 elem.order = 2;
