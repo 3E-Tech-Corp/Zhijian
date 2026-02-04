@@ -40,11 +40,11 @@ void FRSolver::initialize(const Mesh& mesh, const SimParams& params) {
         solution_[i].dUdy.resize(n_sp);
     }
 
+    // Allocate GPU memory (must precede initGeometry which writes to gpu_data_)
+    allocateGPUMemory();
+
     // Initialize geometry on GPU
     initGeometry();
-
-    // Allocate GPU memory
-    allocateGPUMemory();
 
     // Create CUDA stream
     stream_ = std::make_unique<CudaStream>();

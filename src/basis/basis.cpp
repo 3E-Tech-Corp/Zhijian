@@ -755,13 +755,30 @@ void ElementGeometry::shapeFuncDeriv(ElementType type, int order, Real xi, Real 
             dNdxi[2] = 0.25 * (1 + eta);   dNdeta[2] = 0.25 * (1 + xi);
             dNdxi[3] = -0.25 * (1 + eta);  dNdeta[3] = 0.25 * (1 - xi);
         } else {
-            // Biquadratic quad (9 nodes) - abbreviated
+            // Biquadratic quad (9 nodes)
             dNdxi.resize(9);
             dNdeta.resize(9);
-            // Implementation similar to shape functions with derivatives
+            // Corner nodes
             dNdxi[0] = 0.25 * (2*xi - 1) * eta * (eta - 1);
             dNdeta[0] = 0.25 * xi * (xi - 1) * (2*eta - 1);
-            // ... (other nodes)
+            dNdxi[1] = 0.25 * (2*xi + 1) * eta * (eta - 1);
+            dNdeta[1] = 0.25 * xi * (xi + 1) * (2*eta - 1);
+            dNdxi[2] = 0.25 * (2*xi + 1) * eta * (eta + 1);
+            dNdeta[2] = 0.25 * xi * (xi + 1) * (2*eta + 1);
+            dNdxi[3] = 0.25 * (2*xi - 1) * eta * (eta + 1);
+            dNdeta[3] = 0.25 * xi * (xi - 1) * (2*eta + 1);
+            // Edge midside nodes
+            dNdxi[4] = -xi * eta * (eta - 1);
+            dNdeta[4] = 0.5 * (1 - xi*xi) * (2*eta - 1);
+            dNdxi[5] = 0.5 * (2*xi + 1) * (1 - eta*eta);
+            dNdeta[5] = -xi * (xi + 1) * eta;
+            dNdxi[6] = -xi * eta * (eta + 1);
+            dNdeta[6] = 0.5 * (1 - xi*xi) * (2*eta + 1);
+            dNdxi[7] = 0.5 * (2*xi - 1) * (1 - eta*eta);
+            dNdeta[7] = -xi * (xi - 1) * eta;
+            // Center node
+            dNdxi[8] = -2*xi * (1 - eta*eta);
+            dNdeta[8] = -2*eta * (1 - xi*xi);
         }
     }
 }
