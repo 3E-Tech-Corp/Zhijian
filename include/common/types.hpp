@@ -6,6 +6,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <map>
 #include <cmath>
 
 // CUDA host/device macro - only use CUDA keywords when compiling with nvcc
@@ -156,6 +157,18 @@ struct SimParams {
     int restart_freq = 1000;    // Restart file frequency
     std::string output_dir = "./output";
     std::string case_name = "simulation";
+
+    // Boundary condition specifications from config file
+    // Each entry: tag -> {bc_type_string, key-value parameters}
+    struct BCSpec {
+        std::string type_str;           // "wall", "slipwall", "farfield", etc.
+        Real p_static = 0.0;            // for outflow
+        Real p_total = 0.0;             // for inflow
+        Real T_total = 0.0;             // for inflow
+        Real T_wall = 0.0;              // for isothermal wall
+        Real dir_x = 1.0, dir_y = 0.0;  // for inflow direction
+    };
+    std::map<int, BCSpec> bc_specs;     // tag -> BC specification
 };
 
 // MPI partition info

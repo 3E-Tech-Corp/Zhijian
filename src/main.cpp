@@ -129,6 +129,41 @@ SimParams parseConfig(const std::string& filename) {
             else if (solver == "Roe") params.riemann = RiemannSolver::Roe;
             else if (solver == "HLLC") params.riemann = RiemannSolver::HLLC;
         }
+        else if (key == "bc") {
+            // Format: bc <tag> <type> [key value ...]
+            // Examples:
+            //   bc 1 farfield
+            //   bc 2 slipwall
+            //   bc 3 outflow p_static 50000
+            //   bc 4 inflow p_total 120000 T_total 300 direction 1.0 0.0
+            //   bc 5 wall                  # adiabatic no-slip
+            //   bc 6 wall T_wall 500       # isothermal
+            //   bc 7 symmetry
+            int tag;
+            std::string bc_type;
+            iss >> tag >> bc_type;
+
+            // Normalize to lowercase
+            std::transform(bc_type.begin(), bc_type.end(), bc_type.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+
+            SimParams::BCSpec spec;
+            spec.type_str = bc_type;
+
+            // Parse optional key-value parameters
+            std::string pkey;
+            while (iss >> pkey) {
+                std::transform(pkey.begin(), pkey.end(), pkey.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                if (pkey == "p_static")       iss >> spec.p_static;
+                else if (pkey == "p_total")   iss >> spec.p_total;
+                else if (pkey == "t_total")   iss >> spec.T_total;
+                else if (pkey == "t_wall")    iss >> spec.T_wall;
+                else if (pkey == "direction") iss >> spec.dir_x >> spec.dir_y;
+            }
+
+            params.bc_specs[tag] = spec;
+        }
     }
 
     return params;
@@ -257,13 +292,33 @@ int main(int argc, char* argv[]) {
     solver.initialize(mesh, params);
 
     // Set boundary conditions
-    auto farfield_bc = FarFieldBC::fromMach(params.Mach_inf, params.AoA,
-                                             params.rho_inf, params.p_inf,
-                                             params.gamma);
-    solver.setBoundaryCondition(1, farfield_bc);
-
-    auto wall_bc = std::make_shared<SlipWallBC>(params.gamma);
-    solver.setBoundaryCondition(2, wall_bc);
+    if (!params.bc_specs.empty()) {
+        // Config-file driven BCs
+        if (mpi.isRoot()) {
+            std::cout << "Boundary conditions (from config):\n";
+        }
+        for (const auto& [tag, spec] : params.bc_specs) {
+            auto bc = createBCFromSpec(spec, params);
+            solver.setBoundaryCondition(tag, bc);
+            if (mpi.isRoot()) {
+                std::cout << "  Tag " << tag << ": " << spec.type_str
+                          << " (type " << static_cast<int>(bc->type()) << ")\n";
+            }
+        }
+    } else {
+        // Fallback: auto-assign from mesh BC info (inferred from physical names)
+        if (mpi.isRoot()) {
+            std::cout << "Boundary conditions (auto-detected from mesh):\n";
+        }
+        for (const auto& [tag, info] : mesh.allBCInfo()) {
+            auto bc = createBC(info.type, params);
+            solver.setBoundaryCondition(tag, bc);
+            if (mpi.isRoot()) {
+                std::cout << "  Tag " << tag << " (" << info.name << "): type "
+                          << static_cast<int>(info.type) << "\n";
+            }
+        }
+    }
 
     // Set initial condition or load restart
     Real start_time = 0.0;

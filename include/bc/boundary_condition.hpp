@@ -324,7 +324,11 @@ public:
     }
 };
 
-// Factory function to create boundary conditions
+// Factory function to create boundary conditions from BCType enum
 std::shared_ptr<BoundaryCondition> createBC(BCType type, const SimParams& params);
+
+// Factory function to create boundary conditions from config-file specification
+std::shared_ptr<BoundaryCondition> createBCFromSpec(
+        const SimParams::BCSpec& spec, const SimParams& params);
 
 }  // namespace zhijian
