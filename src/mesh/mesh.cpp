@@ -202,18 +202,20 @@ void Mesh::printStats() const {
 
     // Count element types
     int n_tri = 0, n_quad = 0;
-    int n_q1 = 0, n_q2 = 0;
+    int n_q1 = 0, n_q2 = 0, n_q4 = 0;
     for (const auto& elem : elements_) {
         if (elem.type == ElementType::Triangle) ++n_tri;
         else ++n_quad;
         if (elem.order == 1) ++n_q1;
-        else ++n_q2;
+        else if (elem.order == 2) ++n_q2;
+        else if (elem.order == 4) ++n_q4;
     }
 
     std::cout << "Triangles: " << n_tri << std::endl;
     std::cout << "Quadrilaterals: " << n_quad << std::endl;
-    std::cout << "Q1 elements: " << n_q1 << std::endl;
-    std::cout << "Q2 elements: " << n_q2 << std::endl;
+    if (n_q1) std::cout << "Q1 elements: " << n_q1 << std::endl;
+    if (n_q2) std::cout << "Q2 elements: " << n_q2 << std::endl;
+    if (n_q4) std::cout << "Q4 elements: " << n_q4 << std::endl;
 
     // Bounding box
     if (!nodes_.empty()) {

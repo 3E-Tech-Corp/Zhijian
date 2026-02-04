@@ -32,7 +32,8 @@ int GmshReader::gmshElemNumNodes(int elm_type) {
         case 16: return 8;   // 8-node second-order quadrilateral (serendipity)
         case 20: return 9;   // 9-node third-order triangle
         case 21: return 10;  // 10-node third-order triangle
-        case 36: return 16;  // 16-node fourth-order quadrilateral
+        case 36: return 16;  // 16-node third-order quadrilateral
+        case 37: return 25;  // 25-node fourth-order quadrilateral
         default: return -1;  // unsupported
     }
 }
@@ -57,7 +58,8 @@ const char* GmshReader::gmshElemTypeName(int elm_type) {
         case 16: return "8-node quadrilateral (serendipity)";
         case 20: return "9-node triangle (order 3)";
         case 21: return "10-node triangle (order 3)";
-        case 36: return "16-node quadrilateral (order 4)";
+        case 36: return "16-node quadrilateral (order 3)";
+        case 37: return "25-node quadrilateral (order 4)";
         default: return "unknown";
     }
 }
@@ -69,7 +71,8 @@ bool GmshReader::is3DElement(int elm_type) {
 
 bool GmshReader::is2DElement(int elm_type) {
     return elm_type == 2 || elm_type == 3 || elm_type == 9 || elm_type == 10 ||
-           elm_type == 16 || elm_type == 20 || elm_type == 21 || elm_type == 36;
+           elm_type == 16 || elm_type == 20 || elm_type == 21 || elm_type == 36 ||
+           elm_type == 37;
 }
 
 Index GmshReader::addSerendipityCenterNode(Mesh& mesh, const std::vector<Index>& node_ids) {
@@ -326,11 +329,11 @@ bool GmshReader::read(const std::string& filename, Mesh& mesh) {
             }
             if (has_3d) {
                 diag += "\n\nThis appears to be a 3D mesh. Zhijian is a 2D solver and "
-                        "requires triangles (type 2/9) or quadrilaterals (type 3/10/16). "
+                        "requires triangles (type 2/9) or quadrilaterals (type 3/10/16/37). "
                         "Please regenerate the mesh as 2D, or export only the surface elements.";
             } else {
                 diag += "\n\nNone of the element types above are supported 2D elements. "
-                        "Zhijian requires triangles (type 2/9) or quadrilaterals (type 3/10/16).";
+                        "Zhijian requires triangles (type 2/9) or quadrilaterals (type 3/10/16/37).";
             }
         }
         error_msg_ = diag;
@@ -520,6 +523,15 @@ bool GmshReader::readElementsV2(std::ifstream& file, Mesh& mesh,
             elem.partition = 0;
             mesh.elements().push_back(std::move(elem));
         }
+        else if (elm_type == 37) {
+            // 25-node fourth-order (quartic) quadrilateral
+            Element elem;
+            elem.type = ElementType::Quadrilateral;
+            elem.order = 4;
+            elem.node_ids = node_ids;
+            elem.partition = 0;
+            mesh.elements().push_back(std::move(elem));
+        }
         // else: skip (e.g. type 15 = point, 3D elements)
     }
 
@@ -625,6 +637,15 @@ bool GmshReader::readElementsV4(std::ifstream& file, Mesh& mesh,
                 Element elem;
                 elem.type = ElementType::Quadrilateral;
                 elem.order = 2;
+                elem.node_ids = node_ids;
+                elem.partition = 0;
+                mesh.elements().push_back(std::move(elem));
+            }
+            else if (elm_type == 37) {
+                // 25-node fourth-order (quartic) quadrilateral
+                Element elem;
+                elem.type = ElementType::Quadrilateral;
+                elem.order = 4;
                 elem.node_ids = node_ids;
                 elem.partition = 0;
                 mesh.elements().push_back(std::move(elem));

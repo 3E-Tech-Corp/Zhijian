@@ -672,6 +672,48 @@ void FROperators::initTriangle() {
 // Element Geometry
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// 1D quartic Lagrange basis on 5 equispaced nodes: {-1, -0.5, 0, 0.5, 1}
+// Used for the 25-node biquartic quadrilateral (Gmsh type 37).
+// ---------------------------------------------------------------------------
+static void lagrange1D_Q4(Real t, Real L[5]) {
+    const Real nodes[5] = {-1.0, -0.5, 0.0, 0.5, 1.0};
+    for (int i = 0; i < 5; ++i) {
+        L[i] = 1.0;
+        for (int j = 0; j < 5; ++j) {
+            if (j != i)
+                L[i] *= (t - nodes[j]) / (nodes[i] - nodes[j]);
+        }
+    }
+}
+
+static void lagrange1D_Q4_deriv(Real t, Real dL[5]) {
+    const Real nodes[5] = {-1.0, -0.5, 0.0, 0.5, 1.0};
+    for (int i = 0; i < 5; ++i) {
+        dL[i] = 0.0;
+        for (int k = 0; k < 5; ++k) {
+            if (k == i) continue;
+            Real prod = 1.0 / (nodes[i] - nodes[k]);
+            for (int j = 0; j < 5; ++j) {
+                if (j != i && j != k)
+                    prod *= (t - nodes[j]) / (nodes[i] - nodes[j]);
+            }
+            dL[i] += prod;
+        }
+    }
+}
+
+// Gmsh type-37 node ordering → tensor-product (i_xi, i_eta) indices.
+// The 25 nodes are indexed on a 5×5 grid with ξ,η ∈ {-1,-0.5,0,0.5,1}.
+//   Nodes 0-3:   corners (CCW)
+//   Nodes 4-6:   bottom edge   (ξ = -0.5, 0, 0.5;  η = -1)
+//   Nodes 7-9:   right edge    (ξ = 1;  η = -0.5, 0, 0.5)
+//   Nodes 10-12: top edge      (ξ = 0.5, 0, -0.5;  η = 1)
+//   Nodes 13-15: left edge     (ξ = -1;  η = 0.5, 0, -0.5)
+//   Nodes 16-24: interior 3×3  (row-major from (-0.5,-0.5) to (0.5,0.5))
+static const int Q4_XI_IDX[25]  = {0,4,4,0, 1,2,3, 4,4,4, 3,2,1, 0,0,0, 1,2,3,1,2,3,1,2,3};
+static const int Q4_ETA_IDX[25] = {0,0,4,4, 0,0,0, 1,2,3, 4,4,4, 3,2,1, 1,1,1,2,2,2,3,3,3};
+
 void ElementGeometry::shapeFunc(ElementType type, int order, Real xi, Real eta,
                                  std::vector<Real>& N) {
     if (type == ElementType::Triangle) {
@@ -703,7 +745,7 @@ void ElementGeometry::shapeFunc(ElementType type, int order, Real xi, Real eta,
             N[1] = 0.25 * (1 + xi) * (1 - eta);
             N[2] = 0.25 * (1 + xi) * (1 + eta);
             N[3] = 0.25 * (1 - xi) * (1 + eta);
-        } else {
+        } else if (order == 2) {
             // Biquadratic quad (9 nodes)
             N.resize(9);
             // Corner nodes
@@ -718,6 +760,14 @@ void ElementGeometry::shapeFunc(ElementType type, int order, Real xi, Real eta,
             N[7] = 0.5 * xi * (xi - 1) * (1 - eta*eta);
             // Center node
             N[8] = (1 - xi*xi) * (1 - eta*eta);
+        } else if (order == 4) {
+            // Biquartic quad (25 nodes) — tensor-product Lagrange
+            N.resize(25);
+            Real Lxi[5], Leta[5];
+            lagrange1D_Q4(xi, Lxi);
+            lagrange1D_Q4(eta, Leta);
+            for (int k = 0; k < 25; ++k)
+                N[k] = Lxi[Q4_XI_IDX[k]] * Leta[Q4_ETA_IDX[k]];
         }
     }
 }
@@ -754,7 +804,7 @@ void ElementGeometry::shapeFuncDeriv(ElementType type, int order, Real xi, Real 
             dNdxi[1] = 0.25 * (1 - eta);   dNdeta[1] = -0.25 * (1 + xi);
             dNdxi[2] = 0.25 * (1 + eta);   dNdeta[2] = 0.25 * (1 + xi);
             dNdxi[3] = -0.25 * (1 + eta);  dNdeta[3] = 0.25 * (1 - xi);
-        } else {
+        } else if (order == 2) {
             // Biquadratic quad (9 nodes)
             dNdxi.resize(9);
             dNdeta.resize(9);
@@ -779,6 +829,19 @@ void ElementGeometry::shapeFuncDeriv(ElementType type, int order, Real xi, Real 
             // Center node
             dNdxi[8] = -2*xi * (1 - eta*eta);
             dNdeta[8] = -2*eta * (1 - xi*xi);
+        } else if (order == 4) {
+            // Biquartic quad (25 nodes) — tensor-product Lagrange derivatives
+            dNdxi.resize(25);
+            dNdeta.resize(25);
+            Real Lxi[5], Leta[5], dLxi[5], dLeta[5];
+            lagrange1D_Q4(xi, Lxi);
+            lagrange1D_Q4(eta, Leta);
+            lagrange1D_Q4_deriv(xi, dLxi);
+            lagrange1D_Q4_deriv(eta, dLeta);
+            for (int k = 0; k < 25; ++k) {
+                dNdxi[k]  = dLxi[Q4_XI_IDX[k]] * Leta[Q4_ETA_IDX[k]];
+                dNdeta[k] = Lxi[Q4_XI_IDX[k]]  * dLeta[Q4_ETA_IDX[k]];
+            }
         }
     }
 }
