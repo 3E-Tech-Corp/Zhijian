@@ -119,6 +119,11 @@ BCType GmshReader::inferBCType(const std::string& name) {
             return BCType::SlipWall;
         return BCType::Wall;
     }
+    if (lower.find("airfoil") != std::string::npos ||
+        lower.find("wing") != std::string::npos ||
+        lower.find("body") != std::string::npos ||
+        lower.find("surface") != std::string::npos)
+        return BCType::Wall;
     if (lower.find("farfield") != std::string::npos ||
         lower.find("far_field") != std::string::npos ||
         lower.find("far-field") != std::string::npos ||
@@ -129,7 +134,8 @@ BCType GmshReader::inferBCType(const std::string& name) {
         return BCType::Inflow;
     if (lower.find("outflow") != std::string::npos ||
         lower.find("outlet") != std::string::npos ||
-        lower.find("exit") != std::string::npos)
+        lower.find("exit") != std::string::npos ||
+        lower == "out")
         return BCType::Outflow;
     if (lower.find("symmetry") != std::string::npos ||
         lower.find("sym") != std::string::npos)
