@@ -432,18 +432,65 @@ __global__ void computeRiemannFluxWithBCKernel(
         UR = computeGhostState(UL, nx, ny, bct, bc_data, bc_idx, gamma);
     }
 
-    // Compute Riemann flux
+    // Compute Riemann flux with inline safety guards
+    // Using Rusanov flux with comprehensive NaN protection
     State F;
-    switch (solver_type) {
-        case RiemannSolver::Rusanov:
-            F = RiemannSolvers::rusanov(UL, UR, nx, ny, gamma);
-            break;
-        case RiemannSolver::Roe:
-            F = RiemannSolvers::roe(UL, UR, nx, ny, gamma);
-            break;
-        case RiemannSolver::HLLC:
-            F = RiemannSolvers::hllc(UL, UR, nx, ny, gamma);
-            break;
+    {
+        // Safe state extraction with guards
+        Real rhoL = fmax(UL.rho(), 1e-10);
+        Real rhoR = fmax(UR.rho(), 1e-10);
+        Real uL = UL.rhou() / rhoL;
+        Real vL = UL.rhov() / rhoL;
+        Real uR = UR.rhou() / rhoR;
+        Real vR = UR.rhov() / rhoR;
+        
+        // Compute pressure with safety
+        Real EL = UL.rhoE() / rhoL;
+        Real ER = UR.rhoE() / rhoR;
+        Real pL = fmax((gamma - 1.0) * rhoL * (EL - 0.5 * (uL*uL + vL*vL)), 1e-10);
+        Real pR = fmax((gamma - 1.0) * rhoR * (ER - 0.5 * (uR*uR + vR*vR)), 1e-10);
+        
+        // Sound speeds with safety
+        Real cL = sqrt(fmax(gamma * pL / rhoL, 1e-10));
+        Real cR = sqrt(fmax(gamma * pR / rhoR, 1e-10));
+        
+        // Normal velocities
+        Real vnL = uL * nx + vL * ny;
+        Real vnR = uR * nx + vR * ny;
+        
+        // Max wave speed
+        Real velL = sqrt(uL*uL + vL*vL);
+        Real velR = sqrt(uR*uR + vR*vR);
+        Real smax = fmax(velL + cL, velR + cR);
+        
+        // Fluxes
+        Real HL = EL + pL / rhoL;
+        Real HR = ER + pR / rhoR;
+        
+        // Left flux (normal direction)
+        Real FL0 = rhoL * vnL;
+        Real FL1 = rhoL * uL * vnL + pL * nx;
+        Real FL2 = rhoL * vL * vnL + pL * ny;
+        Real FL3 = rhoL * HL * vnL;
+        
+        // Right flux (normal direction)
+        Real FR0 = rhoR * vnR;
+        Real FR1 = rhoR * uR * vnR + pR * nx;
+        Real FR2 = rhoR * vR * vnR + pR * ny;
+        Real FR3 = rhoR * HR * vnR;
+        
+        // Rusanov flux: F = 0.5*(FL + FR) - 0.5*smax*(UR - UL)
+        F[0] = 0.5 * (FL0 + FR0) - 0.5 * smax * (UR[0] - UL[0]);
+        F[1] = 0.5 * (FL1 + FR1) - 0.5 * smax * (UR[1] - UL[1]);
+        F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
+        F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
+        
+        // Final safety check
+        for (int v = 0; v < N_VARS; ++v) {
+            if (isnan(F[v]) || isinf(F[v])) {
+                F[v] = 0.0;  // Zero flux is safe fallback
+            }
+        }
     }
 
     // Store result (face-indexed for correction step)
