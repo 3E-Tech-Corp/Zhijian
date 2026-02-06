@@ -724,7 +724,7 @@ __global__ void applyBoundaryConditionsKernel(
 
         case BCType::FarField: {
             // Far-field BC data: [rho_inf, u_inf, v_inf, p_inf, ...]
-            int bc_offset = face * 8;  // 8 values per face
+            int bc_offset = bc_face * 8;  // 8 values per face
             Real rho_inf = bc_data[bc_offset + 0];
             Real u_inf = bc_data[bc_offset + 1];
             Real v_inf = bc_data[bc_offset + 2];
@@ -778,14 +778,14 @@ __global__ void applyBoundaryConditionsKernel(
             Real rho = U.rho();
             Real u = U.rhou() / rho;
             Real v = U.rhov() / rho;
-            Real p_out = bc_data[face * 8 + 0];  // Specified outlet pressure (8 values per face)
+            Real p_out = bc_data[bc_face * 8 + 0];  // Specified outlet pressure (8 values per face)
             ghost = gas.primToConserv(rho, u, v, p_out);
             break;
         }
 
         case BCType::Inflow: {
             // Subsonic inflow: specify total conditions, extrapolate pressure from interior
-            int bc_offset = face * 8;
+            int bc_offset = bc_face * 8;
             Real p_total = bc_data[bc_offset + 0];
             Real T_total = bc_data[bc_offset + 1];
             Real dir_x = bc_data[bc_offset + 2];
