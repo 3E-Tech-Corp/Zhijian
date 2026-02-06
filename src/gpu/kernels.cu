@@ -333,6 +333,11 @@ __device__ State computeGhostState(const State& U_int, Real nx, Real ny,
                 v_b = v_i;
                 p_b = 0.5 * (p_inf + p_i);  // Average pressure for stability
             }
+            // Clamp to physically reasonable values
+            rho_b = fmax(fmin(rho_b, 100.0), 0.01);  // Reasonable density range
+            u_b = fmax(fmin(u_b, 1000.0), -1000.0);   // Reasonable velocity
+            v_b = fmax(fmin(v_b, 1000.0), -1000.0);
+            p_b = fmax(fmin(p_b, 1e7), 1e3);         // Reasonable pressure range
             ghost = gas.primToConserv(rho_b, u_b, v_b, p_b);
             break;
         }
@@ -470,13 +475,14 @@ __global__ void computeRiemannFluxWithBCKernel(
         F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
         F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
         
-        // Final safety check - clamp extreme values
+        // Final safety check - clamp to physically reasonable values
+        // With rho~1, p~1e5, v~300, flux should be O(1e8) at most
         for (int v = 0; v < N_VARS; ++v) {
             if (isnan(F[v]) || isinf(F[v])) {
                 F[v] = 0.0;  // Zero flux is safe fallback
             }
-            // Clamp to reasonable magnitude (prevents blowup from bad ghost states)
-            F[v] = fmax(fmin(F[v], 1e15), -1e15);
+            // Clamp to reasonable magnitude for dimensional SI units
+            F[v] = fmax(fmin(F[v], 1e9), -1e9);
         }
     }
 
