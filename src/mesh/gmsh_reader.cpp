@@ -32,6 +32,9 @@ int GmshReader::gmshElemNumNodes(int elm_type) {
         case 16: return 8;   // 8-node second-order quadrilateral (serendipity)
         case 20: return 9;   // 9-node third-order triangle
         case 21: return 10;  // 10-node third-order triangle
+        case 26: return 4;   // 4-node third-order (cubic) line
+        case 27: return 5;   // 5-node fourth-order (quartic) line
+        case 28: return 6;   // 6-node fifth-order line
         case 36: return 16;  // 16-node third-order quadrilateral
         case 37: return 25;  // 25-node fourth-order quadrilateral
         default: return -1;  // unsupported
@@ -58,6 +61,9 @@ const char* GmshReader::gmshElemTypeName(int elm_type) {
         case 16: return "8-node quadrilateral (serendipity)";
         case 20: return "9-node triangle (order 3)";
         case 21: return "10-node triangle (order 3)";
+        case 26: return "4-node line (order 3)";
+        case 27: return "5-node line (order 4)";
+        case 28: return "6-node line (order 5)";
         case 36: return "16-node quadrilateral (order 3)";
         case 37: return "25-node quadrilateral (order 4)";
         default: return "unknown";
@@ -478,8 +484,10 @@ bool GmshReader::readElementsV2(std::ifstream& file, Mesh& mesh,
         }
 
         // Classify by element type
-        if (elm_type == 1 || elm_type == 8) {
-            // 1D boundary line
+        // 1D line elements (boundary edges): type 1, 8, 26, 27, 28
+        if (elm_type == 1 || elm_type == 8 || elm_type == 26 ||
+            elm_type == 27 || elm_type == 28) {
+            // 1D boundary line (any order)
             BoundaryEdge edge;
             edge.nodes = node_ids;
             edge.physical_tag = physical_tag;
@@ -597,7 +605,9 @@ bool GmshReader::readElementsV4(std::ifstream& file, Mesh& mesh,
                 node_ids[j] = it->second;
             }
 
-            if (elm_type == 1 || elm_type == 8) {
+            // 1D line elements (boundary edges): type 1, 8, 26, 27, 28
+            if (elm_type == 1 || elm_type == 8 || elm_type == 26 ||
+                elm_type == 27 || elm_type == 28) {
                 BoundaryEdge edge;
                 edge.nodes = node_ids;
                 edge.physical_tag = physical_tag;
