@@ -11,13 +11,21 @@ namespace zhijian {
 static bool checkNaN(const DeviceArray<Real>& arr, const char* name, size_t size) {
     std::vector<Real> host(size);
     const_cast<DeviceArray<Real>&>(arr).copyToHost(host);
+    
+    // Also compute min/max/sum for debugging
+    Real minVal = host[0], maxVal = host[0], sum = 0;
     for (size_t i = 0; i < size; ++i) {
         if (std::isnan(host[i]) || std::isinf(host[i])) {
             std::cerr << "DEBUG: NaN/Inf found in " << name << " at index " << i 
                       << " (value=" << host[i] << ")" << std::endl;
             return true;
         }
+        minVal = std::min(minVal, host[i]);
+        maxVal = std::max(maxVal, host[i]);
+        sum += host[i];
     }
+    std::cerr << "DEBUG: " << name << " min=" << minVal << " max=" << maxVal 
+              << " mean=" << sum/size << std::endl;
     return false;
 }
 

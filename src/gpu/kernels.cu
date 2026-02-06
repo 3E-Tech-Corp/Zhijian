@@ -620,8 +620,9 @@ __global__ void computeFluxDivergenceKernel(
     Real div = (dFdxi * dxidx + dFdeta * detadx) + (dGdxi * dxidy + dGdeta * detady);
 
     // Scale by Jacobian determinant for proper integration
+    // NEGATIVE sign: dU/dt = -∇·F
     Real Jdet = J[elem * n_sp + sp];
-    div_F[elem * n_sp * N_VARS + sp * N_VARS + var] = div * Jdet;
+    div_F[elem * n_sp * N_VARS + sp * N_VARS + var] = -div * Jdet;
 }
 
 void computeFluxDivergence(const Real* Fx, const Real* Fy,
