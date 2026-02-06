@@ -701,6 +701,7 @@ void GmshReader::mapBoundaryConditions(
         info.T_total = 0;
         info.flow_direction = Vec2(1, 0);
         info.p_static = 0;
+        info.T_wall = 0;  // 0 = adiabatic
         info.far_field_state = State();
 
         mesh.addBCInfo(tag, info);

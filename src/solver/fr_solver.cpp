@@ -360,42 +360,95 @@ void FRSolver::computeViscousFlux_GPU() {
 
 void FRSolver::applyBoundaryConditions_GPU() {
     // Count boundary faces and prepare data
+    std::vector<int> bc_face_indices;  // Global face index for each BC face
     std::vector<int> bc_types;
     std::vector<Real> bc_data;
     std::vector<Real> normals;
 
     int n_fp = FluxPoints::numPointsPerEdge(params_.poly_order);
 
-    for (const auto& face : mesh_->faces()) {
-        if (face.is_boundary) {
-            bc_types.push_back(static_cast<int>(face.bc_type));
+    // Far-field reference state (computed once)
+    Real rho_inf = params_.rho_inf;
+    Real c_inf = sqrt(params_.gamma * params_.p_inf / rho_inf);
+    Real vel_inf = params_.Mach_inf * c_inf;
+    Real u_inf = vel_inf * cos(params_.AoA * M_PI / 180.0);
+    Real v_inf = vel_inf * sin(params_.AoA * M_PI / 180.0);
 
-            // Add BC-specific data
-            if (face.bc_type == BCType::FarField) {
-                // Far-field: store rho_inf, u_inf, v_inf, p_inf
-                Real rho = params_.rho_inf;
-                Real c = sqrt(params_.gamma * params_.p_inf / rho);
-                Real vel = params_.Mach_inf * c;
-                Real u = vel * cos(params_.AoA * M_PI / 180.0);
-                Real v = vel * sin(params_.AoA * M_PI / 180.0);
-                bc_data.push_back(rho);
-                bc_data.push_back(u);
-                bc_data.push_back(v);
+    Index n_faces = mesh_->numFaces();
+    for (Index face_idx = 0; face_idx < n_faces; ++face_idx) {
+        const Face& face = mesh_->face(face_idx);
+        if (!face.is_boundary) continue;
+
+        bc_face_indices.push_back(static_cast<int>(face_idx));
+        bc_types.push_back(static_cast<int>(face.bc_type));
+
+        // Get BC data from mesh BCInfo if available, otherwise use defaults
+        Real bc_p_static = params_.p_inf;
+        Real bc_p_total = params_.p_inf * 1.2;
+        Real bc_T_total = params_.T_inf;
+        Real bc_dir_x = 1.0, bc_dir_y = 0.0;
+        Real bc_T_wall = 0.0;  // 0 = adiabatic
+
+        if (face.bc_tag > 0 && mesh_->hasBCInfo(face.bc_tag)) {
+            const BCInfo& info = mesh_->getBCInfo(face.bc_tag);
+            if (info.p_static > 0) bc_p_static = info.p_static;
+            if (info.p_total > 0) bc_p_total = info.p_total;
+            if (info.T_total > 0) bc_T_total = info.T_total;
+            if (info.flow_direction.norm() > 0) {
+                bc_dir_x = info.flow_direction.x;
+                bc_dir_y = info.flow_direction.y;
+            }
+            if (info.T_wall > 0) bc_T_wall = info.T_wall;
+        }
+
+        // Pack BC-specific data (8 values per face for flexibility)
+        switch (face.bc_type) {
+            case BCType::FarField:
+                // Far-field: rho_inf, u_inf, v_inf, p_inf, 0, 0, 0, 0
+                bc_data.push_back(rho_inf);
+                bc_data.push_back(u_inf);
+                bc_data.push_back(v_inf);
                 bc_data.push_back(params_.p_inf);
-            } else {
-                // Default: zeros
-                bc_data.push_back(0);
-                bc_data.push_back(0);
-                bc_data.push_back(0);
-                bc_data.push_back(0);
-            }
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+            case BCType::Inflow:
+                // Inflow: p_total, T_total, dir_x, dir_y, 0, 0, 0, 0
+                bc_data.push_back(bc_p_total);
+                bc_data.push_back(bc_T_total);
+                bc_data.push_back(bc_dir_x);
+                bc_data.push_back(bc_dir_y);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+            case BCType::Outflow:
+                // Outflow: p_static, 0, 0, 0, 0, 0, 0, 0
+                bc_data.push_back(bc_p_static);
+                bc_data.push_back(0); bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+            case BCType::Wall:
+                // Wall: T_wall (0 = adiabatic), 0, 0, 0, 0, 0, 0, 0
+                bc_data.push_back(bc_T_wall);
+                bc_data.push_back(0); bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+            default:
+                // SlipWall, Symmetry, etc.: no special data needed
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+        }
 
-            // Add face normals for each flux point
-            Vec2 n = mesh_->faceNormal(0);  // Would need proper face indexing
-            for (int fp = 0; fp < n_fp; ++fp) {
-                normals.push_back(n.x);
-                normals.push_back(n.y);
-            }
+        // Use the CORRECT face normal for this specific face
+        Vec2 n = mesh_->faceNormal(face_idx);
+        for (int fp = 0; fp < n_fp; ++fp) {
+            normals.push_back(n.x);
+            normals.push_back(n.y);
         }
     }
 

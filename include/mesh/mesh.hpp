@@ -53,6 +53,7 @@ struct BCInfo {
     Real T_total;               // Total temperature (inflow)
     Vec2 flow_direction;        // Flow direction
     Real p_static;              // Static pressure (outflow)
+    Real T_wall;                // Wall temperature (0 = adiabatic)
     State far_field_state;      // Far-field state
 };
 

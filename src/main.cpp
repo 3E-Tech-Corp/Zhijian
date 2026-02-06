@@ -300,6 +300,28 @@ int main(int argc, char* argv[]) {
         for (const auto& [tag, spec] : params.bc_specs) {
             auto bc = createBCFromSpec(spec, params);
             solver.setBoundaryCondition(tag, bc);
+
+            // Also update mesh BCInfo so GPU kernel has correct BC data
+            BCInfo info;
+            info.tag = tag;
+            info.name = spec.type_str;
+            info.type = bc->type();
+            info.p_total = spec.p_total;
+            info.T_total = spec.T_total;
+            info.flow_direction = Vec2(spec.dir_x, spec.dir_y);
+            info.p_static = spec.p_static;
+            info.T_wall = spec.T_wall;
+            info.far_field_state = State();
+            mesh.addBCInfo(tag, info);  // This will overwrite existing entry
+
+            // Update face bc_type for all faces with this tag
+            for (Index f = 0; f < mesh.numFaces(); ++f) {
+                Face& face = mesh.face(f);
+                if (face.is_boundary && face.bc_tag == tag) {
+                    face.bc_type = bc->type();
+                }
+            }
+
             if (mpi.isRoot()) {
                 std::cout << "  Tag " << tag << ": " << spec.type_str
                           << " (type " << static_cast<int>(bc->type()) << ")\n";
