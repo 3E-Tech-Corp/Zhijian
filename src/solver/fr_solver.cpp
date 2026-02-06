@@ -8,6 +8,7 @@
 namespace zhijian {
 
 // Debug helper to check for NaN in GPU array
+static int debug_call_count = 0;
 static bool checkNaN(const DeviceArray<Real>& arr, const char* name, size_t size) {
     std::vector<Real> host(size);
     const_cast<DeviceArray<Real>&>(arr).copyToHost(host);
@@ -16,16 +17,20 @@ static bool checkNaN(const DeviceArray<Real>& arr, const char* name, size_t size
     Real minVal = host[0], maxVal = host[0], sum = 0;
     for (size_t i = 0; i < size; ++i) {
         if (std::isnan(host[i]) || std::isinf(host[i])) {
-            std::cerr << "DEBUG: NaN/Inf found in " << name << " at index " << i 
-                      << " (value=" << host[i] << ")" << std::endl;
+            std::cout << "DEBUG: NaN/Inf found in " << name << " at index " << i 
+                      << " (value=" << host[i] << ")" << std::endl << std::flush;
             return true;
         }
         minVal = std::min(minVal, host[i]);
         maxVal = std::max(maxVal, host[i]);
         sum += host[i];
     }
-    std::cerr << "DEBUG: " << name << " min=" << minVal << " max=" << maxVal 
-              << " mean=" << sum/size << std::endl;
+    // Only print first few calls to avoid spam
+    if (debug_call_count < 50) {
+        std::cout << "DEBUG: " << name << " min=" << minVal << " max=" << maxVal 
+                  << " mean=" << sum/size << std::endl << std::flush;
+        debug_call_count++;
+    }
     return false;
 }
 
