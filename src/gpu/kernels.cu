@@ -514,8 +514,8 @@ __global__ void applyBoundaryConditionsKernel(
         }
 
         case BCType::FarField: {
-            // Far-field BC data: [rho_inf, u_inf, v_inf, p_inf]
-            int bc_offset = face * 4;
+            // Far-field BC data: [rho_inf, u_inf, v_inf, p_inf, ...]
+            int bc_offset = face * 8;  // 8 values per face
             Real rho_inf = bc_data[bc_offset + 0];
             Real u_inf = bc_data[bc_offset + 1];
             Real v_inf = bc_data[bc_offset + 2];
@@ -569,8 +569,51 @@ __global__ void applyBoundaryConditionsKernel(
             Real rho = U.rho();
             Real u = U.rhou() / rho;
             Real v = U.rhov() / rho;
-            Real p_out = bc_data[face * 4 + 0];  // Specified outlet pressure
+            Real p_out = bc_data[face * 8 + 0];  // Specified outlet pressure (8 values per face)
             ghost = gas.primToConserv(rho, u, v, p_out);
+            break;
+        }
+
+        case BCType::Inflow: {
+            // Subsonic inflow: specify total conditions, extrapolate pressure from interior
+            int bc_offset = face * 8;
+            Real p_total = bc_data[bc_offset + 0];
+            Real T_total = bc_data[bc_offset + 1];
+            Real dir_x = bc_data[bc_offset + 2];
+            Real dir_y = bc_data[bc_offset + 3];
+
+            // Normalize direction
+            Real dir_mag = sqrt(dir_x * dir_x + dir_y * dir_y);
+            if (dir_mag > 1e-10) {
+                dir_x /= dir_mag;
+                dir_y /= dir_mag;
+            } else {
+                dir_x = -nx;  // Default: opposite to outward normal
+                dir_y = -ny;
+            }
+
+            // Extrapolate static pressure from interior
+            Real p_static = gas.pressure(U);
+
+            // Compute Mach number from isentropic relation: p_total/p = (1 + (gamma-1)/2 * M^2)^(gamma/(gamma-1))
+            Real pr = p_total / p_static;
+            Real exp_inv = (gamma - 1.0) / gamma;
+            Real M_sq = 2.0 / (gamma - 1.0) * (pow(pr, exp_inv) - 1.0);
+            M_sq = fmax(M_sq, 0.0);  // Ensure non-negative
+            Real M = sqrt(M_sq);
+
+            // Compute static temperature: T_total/T = 1 + (gamma-1)/2 * M^2
+            Real T_static = T_total / (1.0 + 0.5 * (gamma - 1.0) * M_sq);
+
+            // Compute density and velocity (assuming R = p/(rho*T), with R absorbed into units)
+            Real rho_b = p_static / T_static;  // Assumes p = rho * T (R=1 non-dimensional)
+            Real c_b = sqrt(gamma * p_static / rho_b);
+            Real vel_mag = M * c_b;
+
+            Real u_b = vel_mag * dir_x;
+            Real v_b = vel_mag * dir_y;
+
+            ghost = gas.primToConserv(rho_b, u_b, v_b, p_static);
             break;
         }
 
