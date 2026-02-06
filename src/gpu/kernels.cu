@@ -303,50 +303,35 @@ __device__ State computeGhostState(const State& U_int, Real nx, Real ny,
             break;
         }
         case BCType::FarField: {
+            // Simple averaging approach - more stable than characteristic BC
             int offset = bc_idx * 8;
             Real rho_inf = bc_data[offset + 0];
             Real u_inf = bc_data[offset + 1];
             Real v_inf = bc_data[offset + 2];
             Real p_inf = bc_data[offset + 3];
 
-            State U_inf = gas.primToConserv(rho_inf, u_inf, v_inf, p_inf);
-            Real c_inf = gas.soundSpeed(U_inf);
-
-            Real rho_i = U_int.rho();
+            Real rho_i = fmax(U_int.rho(), 1e-10);
             Real u_i = U_int.rhou() / rho_i;
             Real v_i = U_int.rhov() / rho_i;
-            Real c_i = gas.soundSpeed(U_int);
+            Real p_i = fmax((gamma - 1.0) * (U_int.rhoE() - 0.5 * rho_i * (u_i*u_i + v_i*v_i)), 1e-10);
 
+            // Normal velocity to determine inflow/outflow
             Real vn_i = u_i * nx + v_i * ny;
             Real vn_inf = u_inf * nx + v_inf * ny;
 
-            Real R_plus = vn_i + 2.0 * c_i / (gamma - 1.0);
-            Real R_minus = vn_inf - 2.0 * c_inf / (gamma - 1.0);
-
-            Real vn_b = 0.5 * (R_plus + R_minus);
-            Real c_b = 0.25 * (gamma - 1.0) * (R_plus - R_minus);
-
             Real rho_b, u_b, v_b, p_b;
-            // Safety: ensure c_b is positive
-            c_b = fmax(c_b, 1e-10);
-            if (vn_b >= 0) {
-                Real vt_i = u_i * (-ny) + v_i * nx;
-                Real s_i = gas.pressure(U_int) / pow(fmax(rho_i, 1e-10), gamma);
-                s_i = fmax(s_i, 1e-10);  // Ensure positive entropy
-                rho_b = pow(c_b * c_b / (gamma * s_i), 1.0 / (gamma - 1.0));
-                rho_b = fmax(rho_b, 1e-10);  // Ensure positive density
-                p_b = rho_b * c_b * c_b / gamma;
-                u_b = vn_b * nx - vt_i * ny;
-                v_b = vn_b * ny + vt_i * nx;
+            if (vn_inf > 0) {
+                // Inflow: use freestream with interior pressure influence
+                rho_b = rho_inf;
+                u_b = u_inf;
+                v_b = v_inf;
+                p_b = 0.5 * (p_inf + p_i);  // Average pressure for stability
             } else {
-                Real vt_inf = u_inf * (-ny) + v_inf * nx;
-                Real s_inf = p_inf / pow(fmax(rho_inf, 1e-10), gamma);
-                s_inf = fmax(s_inf, 1e-10);  // Ensure positive entropy
-                rho_b = pow(c_b * c_b / (gamma * s_inf), 1.0 / (gamma - 1.0));
-                rho_b = fmax(rho_b, 1e-10);  // Ensure positive density
-                p_b = rho_b * c_b * c_b / gamma;
-                u_b = vn_b * nx - vt_inf * ny;
-                v_b = vn_b * ny + vt_inf * nx;
+                // Outflow: extrapolate from interior with freestream pressure influence
+                rho_b = rho_i;
+                u_b = u_i;
+                v_b = v_i;
+                p_b = 0.5 * (p_inf + p_i);  // Average pressure for stability
             }
             ghost = gas.primToConserv(rho_b, u_b, v_b, p_b);
             break;
@@ -485,11 +470,13 @@ __global__ void computeRiemannFluxWithBCKernel(
         F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
         F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
         
-        // Final safety check
+        // Final safety check - clamp extreme values
         for (int v = 0; v < N_VARS; ++v) {
             if (isnan(F[v]) || isinf(F[v])) {
                 F[v] = 0.0;  // Zero flux is safe fallback
             }
+            // Clamp to reasonable magnitude (prevents blowup from bad ghost states)
+            F[v] = fmax(fmin(F[v], 1e15), -1e15);
         }
     }
 
