@@ -129,6 +129,8 @@ void FRSolver::allocateGPUMemory() {
     gpu_data_->dUdt.resize(sol_size);
     gpu_data_->dUdx.resize(sol_size);
     gpu_data_->dUdy.resize(sol_size);
+    gpu_data_->Fx_sp.resize(sol_size);
+    gpu_data_->Fy_sp.resize(sol_size);
 
     gpu_data_->U_fp.resize(fp_size);
     gpu_data_->F_fp.resize(fp_size);
@@ -140,6 +142,8 @@ void FRSolver::allocateGPUMemory() {
     gpu_data_->dUdt.fill(0);
     gpu_data_->dUdx.fill(0);
     gpu_data_->dUdy.fill(0);
+    gpu_data_->Fx_sp.fill(0);
+    gpu_data_->Fy_sp.fill(0);
     gpu_data_->F_fp.fill(0);
 
     // Upload FR operators to GPU
@@ -315,8 +319,8 @@ void FRSolver::computeInviscidFlux_GPU() {
 
     // Compute flux at solution points
     gpu::computeInviscidFluxSP(gpu_data_->U.data(),
-                                gpu_data_->dUdt.data(),  // Temporary storage for Fx
-                                gpu_data_->dUdx.data(),  // Temporary storage for Fy
+                                gpu_data_->Fx_sp.data(),  // x-flux at solution points
+                                gpu_data_->Fy_sp.data(),  // y-flux at solution points
                                 params_.gamma, n_elem, n_sp, stream_->get());
 
     // Interpolate solution to flux points
@@ -418,7 +422,7 @@ void FRSolver::computeInviscidFlux_GPU() {
 
     // Compute flux divergence at solution points
     // dUdt = -∇·F (negative divergence of flux)
-    gpu::computeFluxDivergence(gpu_data_->dUdt.data(), gpu_data_->dUdx.data(),
+    gpu::computeFluxDivergence(gpu_data_->Fx_sp.data(), gpu_data_->Fy_sp.data(),
                                 gpu_data_->dUdt.data(),
                                 gpu_data_->diff_xi.data(), gpu_data_->diff_eta.data(),
                                 gpu_data_->Jinv.data(), gpu_data_->J.data(),

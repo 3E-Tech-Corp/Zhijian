@@ -33,6 +33,10 @@ struct GPUSolverData {
     DeviceArray<Real> dUdx;         // x-gradient [n_elem * n_sp * N_VARS]
     DeviceArray<Real> dUdy;         // y-gradient [n_elem * n_sp * N_VARS]
 
+    // Inviscid flux at solution points (for flux divergence)
+    DeviceArray<Real> Fx_sp;        // x-flux at solution points
+    DeviceArray<Real> Fy_sp;        // y-flux at solution points
+
     // Flux point data
     DeviceArray<Real> U_fp;         // Solution at flux points
     DeviceArray<Real> F_fp;         // Numerical flux at flux points
