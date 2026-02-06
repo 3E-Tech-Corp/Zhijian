@@ -340,7 +340,7 @@ void FRSolver::computeInviscidFlux_GPU() {
                                 gpu_data_->Fx_sp.data(),  // x-flux at solution points
                                 gpu_data_->Fy_sp.data(),  // y-flux at solution points
                                 params_.gamma, n_elem, n_sp, stream_->get());
-    stream_->sync();
+    stream_->synchronize();
     if (checkNaN(gpu_data_->Fx_sp, "Fx_sp", sol_size)) return;
     if (checkNaN(gpu_data_->Fy_sp, "Fy_sp", sol_size)) return;
 
@@ -348,7 +348,7 @@ void FRSolver::computeInviscidFlux_GPU() {
     gpu::interpolateToFluxPoints(gpu_data_->U.data(), gpu_data_->U_fp.data(),
                                   gpu_data_->interp_fp.data(),
                                   n_elem, n_sp, 4, n_fp, stream_->get());
-    stream_->sync();
+    stream_->synchronize();
     size_t fp_size = n_elem * 4 * n_fp * N_VARS;
     if (checkNaN(gpu_data_->U_fp, "U_fp", fp_size)) return;
 
@@ -445,7 +445,7 @@ void FRSolver::computeInviscidFlux_GPU() {
         n_faces, n_fp, stream_->get());
 
     // Check Riemann flux result
-    stream_->sync();
+    stream_->synchronize();
     if (checkNaN(gpu_data_->F_fp, "F_fp (after scatter)", fp_size)) return;
 
     // Compute flux divergence at solution points
@@ -455,7 +455,7 @@ void FRSolver::computeInviscidFlux_GPU() {
                                 gpu_data_->diff_xi.data(), gpu_data_->diff_eta.data(),
                                 gpu_data_->Jinv.data(), gpu_data_->J.data(),
                                 n_elem, n_sp, stream_->get());
-    stream_->sync();
+    stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after divergence)", sol_size)) return;
 
     // Apply FR correction using common flux
@@ -464,7 +464,7 @@ void FRSolver::computeInviscidFlux_GPU() {
     gpu::applyFRCorrection(gpu_data_->dUdt.data(), gpu_data_->F_fp.data(),
                             gpu_data_->corr_deriv.data(), gpu_data_->J.data(),
                             n_elem, n_sp, 4, n_fp, stream_->get());
-    stream_->sync();
+    stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after FR correction)", sol_size)) return;
 }
 
