@@ -432,6 +432,11 @@ void FRSolver::computeInviscidFlux_GPU() {
     // Allocate temporary face-indexed array for Riemann flux output
     DeviceArray<Real> F_face(n_faces * n_fp * N_VARS);
 
+    // Debug: check normals
+    stream_->synchronize();
+    size_t norm_size = n_faces * n_fp * 2;
+    if (checkNaN(gpu_data_->face_normals, "face_normals", norm_size)) return;
+
     // Compute Riemann flux with integrated BC handling (outputs face-indexed)
     gpu::computeRiemannFluxWithBC(
         gpu_data_->U_fp.data(),
@@ -446,6 +451,11 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_normals.data(),
         params_.gamma, params_.riemann,
         n_faces, n_fp, stream_->get());
+
+    // Debug: check F_face before scatter
+    stream_->synchronize();
+    size_t face_flux_size = n_faces * n_fp * N_VARS;
+    if (checkNaN(F_face, "F_face (Riemann output)", face_flux_size)) return;
 
     // Scatter face-indexed common flux to element-indexed format
     gpu::scatterFluxToElements(
