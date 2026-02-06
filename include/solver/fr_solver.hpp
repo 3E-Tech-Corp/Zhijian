@@ -36,6 +36,7 @@ struct GPUSolverData {
     // Flux point data
     DeviceArray<Real> U_fp;         // Solution at flux points
     DeviceArray<Real> F_fp;         // Numerical flux at flux points
+    DeviceArray<Real> U_ghost;      // Ghost states at boundary faces
 
     // RK stages
     DeviceArray<Real> U0;           // Initial solution for RK
@@ -51,6 +52,12 @@ struct GPUSolverData {
     DeviceArray<int> elem_type;     // Element types
     DeviceArray<int> face_info;     // Face connectivity info
     DeviceArray<int> bc_type;       // Boundary condition types
+
+    // Face connectivity for Riemann flux
+    DeviceArray<int> face_left_elem;   // Left element index for each face
+    DeviceArray<int> face_left_local;  // Left local face index (0-3)
+    DeviceArray<int> face_right_elem;  // Right element index (-1 for boundary)
+    DeviceArray<int> face_right_local; // Right local face index
 
     // FR operators (precomputed)
     DeviceArray<Real> diff_xi;      // Differentiation matrix

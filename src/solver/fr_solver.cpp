@@ -183,16 +183,40 @@ void FRSolver::allocateGPUMemory() {
     gpu_data_->corr_deriv.resize(corr_flat.size());
     gpu_data_->corr_deriv.copyToDevice(corr_flat);
 
-    // Upload face normals
+    // Upload face normals and connectivity
     Index n_faces = mesh_->numFaces();
     std::vector<Real> normals_flat(n_faces * 2);
+    std::vector<int> face_left_elem(n_faces);
+    std::vector<int> face_left_local(n_faces);
+    std::vector<int> face_right_elem(n_faces);
+    std::vector<int> face_right_local(n_faces);
+
     for (Index f = 0; f < n_faces; ++f) {
         Vec2 n = mesh_->faceNormal(f);
         normals_flat[2 * f]     = n.x;
         normals_flat[2 * f + 1] = n.y;
+
+        const Face& face = mesh_->face(f);
+        face_left_elem[f] = face.left_elem;
+        face_left_local[f] = face.left_face;
+        face_right_elem[f] = face.right_elem;  // -1 for boundary
+        face_right_local[f] = face.right_face;
     }
+
     gpu_data_->face_normals.resize(normals_flat.size());
     gpu_data_->face_normals.copyToDevice(normals_flat);
+
+    gpu_data_->face_left_elem.resize(n_faces);
+    gpu_data_->face_left_elem.copyToDevice(face_left_elem.data(), n_faces);
+
+    gpu_data_->face_left_local.resize(n_faces);
+    gpu_data_->face_left_local.copyToDevice(face_left_local.data(), n_faces);
+
+    gpu_data_->face_right_elem.resize(n_faces);
+    gpu_data_->face_right_elem.copyToDevice(face_right_elem.data(), n_faces);
+
+    gpu_data_->face_right_local.resize(n_faces);
+    gpu_data_->face_right_local.copyToDevice(face_right_local.data(), n_faces);
 }
 
 void FRSolver::setInitialCondition(const std::function<State(Vec2)>& ic_func) {
@@ -268,7 +292,7 @@ void FRSolver::computeResidual_GPU() {
         exchangeHalo();
     }
 
-    // Compute inviscid flux
+    // Compute inviscid flux (BCs applied internally before Riemann solver)
     computeInviscidFlux_GPU();
 
     // Compute viscous flux if enabled
@@ -276,9 +300,6 @@ void FRSolver::computeResidual_GPU() {
         computeGradients_GPU();
         computeViscousFlux_GPU();
     }
-
-    // Apply boundary conditions
-    applyBoundaryConditions_GPU();
 }
 
 void FRSolver::computeInviscidFlux_GPU() {
@@ -297,14 +318,97 @@ void FRSolver::computeInviscidFlux_GPU() {
                                   gpu_data_->interp_fp.data(),
                                   n_elem, n_sp, 4, n_fp, stream_->get());
 
-    // Compute Riemann flux at interfaces
+    // Build BC data for Riemann flux kernel
     int n_faces = static_cast<int>(mesh_->numFaces());
-    gpu::computeRiemannFlux(gpu_data_->U_fp.data(),    // Left states
-                            gpu_data_->U_fp.data(),    // Right states (needs proper indexing)
-                            gpu_data_->F_fp.data(),
-                            gpu_data_->face_normals.data(),
-                            params_.gamma, params_.riemann,
-                            n_faces, n_fp, stream_->get());
+    std::vector<int> bc_type_per_face(n_faces, static_cast<int>(BCType::Interior));
+    std::vector<int> bc_face_map(n_faces, -1);
+    std::vector<Real> bc_data;
+
+    // Far-field reference state
+    Real rho_inf = params_.rho_inf;
+    Real c_inf = sqrt(params_.gamma * params_.p_inf / rho_inf);
+    Real vel_inf = params_.Mach_inf * c_inf;
+    Real u_inf = vel_inf * cos(params_.AoA * M_PI / 180.0);
+    Real v_inf = vel_inf * sin(params_.AoA * M_PI / 180.0);
+
+    int bc_count = 0;
+    for (Index f = 0; f < static_cast<Index>(n_faces); ++f) {
+        const Face& face = mesh_->face(f);
+        if (!face.is_boundary) continue;
+
+        bc_type_per_face[f] = static_cast<int>(face.bc_type);
+        bc_face_map[f] = bc_count;
+
+        // Get BC parameters from mesh BCInfo
+        Real bc_p_static = params_.p_inf;
+        if (face.bc_tag > 0 && mesh_->hasBCInfo(face.bc_tag)) {
+            const BCInfo& info = mesh_->getBCInfo(face.bc_tag);
+            if (info.p_static > 0) bc_p_static = info.p_static;
+        }
+
+        // Pack 8 values per boundary face
+        switch (face.bc_type) {
+            case BCType::FarField:
+                bc_data.push_back(rho_inf);
+                bc_data.push_back(u_inf);
+                bc_data.push_back(v_inf);
+                bc_data.push_back(params_.p_inf);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+            case BCType::Outflow:
+                bc_data.push_back(bc_p_static);
+                bc_data.push_back(0); bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                bc_data.push_back(0); bc_data.push_back(0);
+                break;
+            default:
+                // Wall, SlipWall, Symmetry, etc.
+                for (int i = 0; i < 8; ++i) bc_data.push_back(0);
+                break;
+        }
+        bc_count++;
+    }
+
+    // Upload BC data to GPU
+    DeviceArray<int> d_bc_type(n_faces);
+    d_bc_type.copyToDevice(bc_type_per_face.data(), n_faces);
+
+    DeviceArray<int> d_bc_face_map(n_faces);
+    d_bc_face_map.copyToDevice(bc_face_map.data(), n_faces);
+
+    DeviceArray<Real> d_bc_data(bc_data.size() > 0 ? bc_data.size() : 1);
+    if (!bc_data.empty()) {
+        d_bc_data.copyToDevice(bc_data);
+    }
+
+    // Allocate temporary face-indexed array for Riemann flux output
+    DeviceArray<Real> F_face(n_faces * n_fp * N_VARS);
+
+    // Compute Riemann flux with integrated BC handling (outputs face-indexed)
+    gpu::computeRiemannFluxWithBC(
+        gpu_data_->U_fp.data(),
+        F_face.data(),
+        gpu_data_->face_left_elem.data(),
+        gpu_data_->face_left_local.data(),
+        gpu_data_->face_right_elem.data(),
+        gpu_data_->face_right_local.data(),
+        d_bc_type.data(),
+        d_bc_data.data(),
+        d_bc_face_map.data(),
+        gpu_data_->face_normals.data(),
+        params_.gamma, params_.riemann,
+        n_faces, n_fp, stream_->get());
+
+    // Scatter face-indexed flux to element-indexed format for FR correction
+    gpu::scatterFluxToElements(
+        F_face.data(),
+        gpu_data_->F_fp.data(),
+        gpu_data_->face_left_elem.data(),
+        gpu_data_->face_left_local.data(),
+        gpu_data_->face_right_elem.data(),
+        gpu_data_->face_right_local.data(),
+        n_faces, n_fp, stream_->get());
 
     // Compute flux divergence at solution points
     gpu::computeFluxDivergence(gpu_data_->dUdt.data(), gpu_data_->dUdx.data(),
@@ -360,7 +464,8 @@ void FRSolver::computeViscousFlux_GPU() {
 
 void FRSolver::applyBoundaryConditions_GPU() {
     // Count boundary faces and prepare data
-    std::vector<int> bc_face_indices;  // Global face index for each BC face
+    std::vector<int> bc_elem_idx;      // Element index for each BC face
+    std::vector<int> bc_local_face;    // Local face index (0-3) for each BC face
     std::vector<int> bc_types;
     std::vector<Real> bc_data;
     std::vector<Real> normals;
@@ -379,7 +484,9 @@ void FRSolver::applyBoundaryConditions_GPU() {
         const Face& face = mesh_->face(face_idx);
         if (!face.is_boundary) continue;
 
-        bc_face_indices.push_back(static_cast<int>(face_idx));
+        // Store element and local face indices for correct U_fp indexing
+        bc_elem_idx.push_back(static_cast<int>(face.left_elem));
+        bc_local_face.push_back(static_cast<int>(face.left_face));
         bc_types.push_back(static_cast<int>(face.bc_type));
 
         // Get BC data from mesh BCInfo if available, otherwise use defaults
@@ -456,6 +563,12 @@ void FRSolver::applyBoundaryConditions_GPU() {
     if (n_bc_faces == 0) return;
 
     // Upload to GPU
+    DeviceArray<int> d_elem_idx(n_bc_faces);
+    d_elem_idx.copyToDevice(bc_elem_idx.data(), n_bc_faces);
+
+    DeviceArray<int> d_local_face(n_bc_faces);
+    d_local_face.copyToDevice(bc_local_face.data(), n_bc_faces);
+
     DeviceArray<int> d_bc_types(n_bc_faces);
     d_bc_types.copyToDevice(bc_types.data(), n_bc_faces);
 
@@ -465,9 +578,10 @@ void FRSolver::applyBoundaryConditions_GPU() {
     DeviceArray<Real> d_normals(normals.size());
     d_normals.copyToDevice(normals);
 
-    // Apply boundary conditions
-    gpu::applyBoundaryConditions(gpu_data_->U_fp.data(),  // Interior states
-                                  gpu_data_->U_fp.data(),  // Ghost states (output)
+    // Apply boundary conditions (modifies U_fp in place for boundary faces)
+    gpu::applyBoundaryConditions(gpu_data_->U_fp.data(),
+                                  d_elem_idx.data(),
+                                  d_local_face.data(),
                                   d_bc_types.data(),
                                   d_bc_data.data(),
                                   d_normals.data(),

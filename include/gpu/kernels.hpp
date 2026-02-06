@@ -63,6 +63,29 @@ void computeRiemannFlux(const Real* U_L, const Real* U_R,
                          int n_faces, int n_fp_per_face,
                          cudaStream_t stream = 0);
 
+// New: Compute Riemann flux using element-indexed U_fp with integrated BC handling
+// U_fp: element-indexed flux point states [n_elem][4][n_fp][N_VARS]
+// F_common: output common flux (face-indexed)
+// face_*: face connectivity arrays
+// bc_type: BC type for each face (Interior=5 for internal faces)
+// bc_data: BC parameters (8 values per boundary face)
+// bc_face_map: maps global face index to BC data index (-1 for interior)
+void computeRiemannFluxWithBC(
+    const Real* U_fp,
+    Real* F_common,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const int* face_right_elem,
+    const int* face_right_local,
+    const int* bc_type,
+    const Real* bc_data,
+    const int* bc_face_map,
+    const Real* normals,
+    Real gamma,
+    RiemannSolver solver_type,
+    int n_faces, int n_fp_per_face,
+    cudaStream_t stream = 0);
+
 // Compute viscous flux at solution points
 // U: conservative variables
 // dUdx, dUdy: gradients
@@ -100,6 +123,17 @@ void computeFluxDivergence(const Real* Fx, const Real* Fy,
                             int n_elem, int n_sp,
                             cudaStream_t stream = 0);
 
+// Scatter face-indexed common flux to element-indexed format
+void scatterFluxToElements(
+    const Real* F_face,                // Face-indexed common flux
+    Real* F_elem,                      // Element-indexed flux (output)
+    const int* face_left_elem,
+    const int* face_left_local,
+    const int* face_right_elem,
+    const int* face_right_local,
+    int n_faces, int n_fp_per_face,
+    cudaStream_t stream = 0);
+
 // Apply FR correction at solution points
 // div_F: current divergence (modified in place)
 // F_diff: flux difference at flux points (F_common - F_interior)
@@ -117,11 +151,15 @@ void applyFRCorrection(Real* div_F,
 
 // Apply boundary conditions at flux points
 // U_int: interior solution at boundary flux points
-// U_ghost: ghost state (output)
+// U_fp: flux point states (element-indexed, modified in place for boundary faces)
+// elem_idx: element index for each boundary face
+// local_face: local face index (0-3) for each boundary face
 // bc_type: boundary condition type for each face
 // bc_data: boundary condition parameters
 // normals: face outward normals
-void applyBoundaryConditions(const Real* U_int, Real* U_ghost,
+void applyBoundaryConditions(Real* U_fp,
+                              const int* elem_idx,
+                              const int* local_face,
                               const int* bc_type,
                               const Real* bc_data,
                               const Real* normals,

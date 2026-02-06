@@ -193,10 +193,96 @@ void computeInviscidFluxSP(const Real* U, Real* Fx, Real* Fy,
         U, Fx, Fy, gamma, n_elem, n_sp);
 }
 
-__global__ void computeRiemannFluxKernel(
-    const Real* __restrict__ U_L,
-    const Real* __restrict__ U_R,
-    Real* __restrict__ F_common,
+// Helper: compute ghost state for boundary face
+__device__ State computeGhostState(const State& U_int, Real nx, Real ny,
+                                    BCType bc_type, const Real* bc_data, int bc_idx, Real gamma) {
+    IdealGas gas(gamma);
+    State ghost;
+
+    switch (bc_type) {
+        case BCType::Wall:
+        case BCType::SlipWall:
+        case BCType::Symmetry: {
+            // Reflect velocity
+            Real rho = U_int.rho();
+            Real u = U_int.rhou() / rho;
+            Real v = U_int.rhov() / rho;
+            Real p = gas.pressure(U_int);
+            Real vn = u * nx + v * ny;
+            Real u_ghost = u - 2.0 * vn * nx;
+            Real v_ghost = v - 2.0 * vn * ny;
+            ghost = gas.primToConserv(rho, u_ghost, v_ghost, p);
+            break;
+        }
+        case BCType::FarField: {
+            int offset = bc_idx * 8;
+            Real rho_inf = bc_data[offset + 0];
+            Real u_inf = bc_data[offset + 1];
+            Real v_inf = bc_data[offset + 2];
+            Real p_inf = bc_data[offset + 3];
+
+            State U_inf = gas.primToConserv(rho_inf, u_inf, v_inf, p_inf);
+            Real c_inf = gas.soundSpeed(U_inf);
+
+            Real rho_i = U_int.rho();
+            Real u_i = U_int.rhou() / rho_i;
+            Real v_i = U_int.rhov() / rho_i;
+            Real c_i = gas.soundSpeed(U_int);
+
+            Real vn_i = u_i * nx + v_i * ny;
+            Real vn_inf = u_inf * nx + v_inf * ny;
+
+            Real R_plus = vn_i + 2.0 * c_i / (gamma - 1.0);
+            Real R_minus = vn_inf - 2.0 * c_inf / (gamma - 1.0);
+
+            Real vn_b = 0.5 * (R_plus + R_minus);
+            Real c_b = 0.25 * (gamma - 1.0) * (R_plus - R_minus);
+
+            Real rho_b, u_b, v_b, p_b;
+            if (vn_b >= 0) {
+                Real vt_i = u_i * (-ny) + v_i * nx;
+                Real s_i = gas.pressure(U_int) / pow(rho_i, gamma);
+                rho_b = pow(c_b * c_b / (gamma * s_i), 1.0 / (gamma - 1.0));
+                p_b = rho_b * c_b * c_b / gamma;
+                u_b = vn_b * nx - vt_i * ny;
+                v_b = vn_b * ny + vt_i * nx;
+            } else {
+                Real vt_inf = u_inf * (-ny) + v_inf * nx;
+                Real s_inf = p_inf / pow(rho_inf, gamma);
+                rho_b = pow(c_b * c_b / (gamma * s_inf), 1.0 / (gamma - 1.0));
+                p_b = rho_b * c_b * c_b / gamma;
+                u_b = vn_b * nx - vt_inf * ny;
+                v_b = vn_b * ny + vt_inf * nx;
+            }
+            ghost = gas.primToConserv(rho_b, u_b, v_b, p_b);
+            break;
+        }
+        case BCType::Outflow: {
+            Real rho = U_int.rho();
+            Real u = U_int.rhou() / rho;
+            Real v = U_int.rhov() / rho;
+            Real p_out = bc_data[bc_idx * 8 + 0];
+            ghost = gas.primToConserv(rho, u, v, p_out);
+            break;
+        }
+        default:
+            ghost = U_int;
+            break;
+    }
+    return ghost;
+}
+
+// New kernel that uses element-indexed U_fp and handles BCs internally
+__global__ void computeRiemannFluxWithBCKernel(
+    const Real* __restrict__ U_fp,           // Element-indexed flux point states
+    Real* __restrict__ F_common,             // Output: common flux at flux points (face-indexed)
+    const int* __restrict__ face_left_elem,
+    const int* __restrict__ face_left_local,
+    const int* __restrict__ face_right_elem, // -1 for boundary
+    const int* __restrict__ face_right_local,
+    const int* __restrict__ bc_type,         // BC type for each face (Interior for non-boundary)
+    const Real* __restrict__ bc_data,        // BC data array
+    const int* __restrict__ bc_face_map,     // Maps global face idx to BC data index (-1 for interior)
     const Real* __restrict__ normals,
     Real gamma,
     RiemannSolver solver_type,
@@ -207,18 +293,45 @@ __global__ void computeRiemannFluxKernel(
 
     if (face >= n_faces || fp >= n_fp_per_face) return;
 
-    int idx = face * n_fp_per_face + fp;
+    // Get connectivity
+    int left_elem = face_left_elem[face];
+    int left_local = face_left_local[face];
+    int right_elem = face_right_elem[face];
+    int right_local = face_right_local[face];
 
-    // Load states
-    State UL, UR;
+    // Compute offset into U_fp for left state
+    // U_fp layout: [elem][local_face][flux_pt][var]
+    int left_offset = left_elem * 4 * n_fp_per_face * N_VARS
+                    + left_local * n_fp_per_face * N_VARS
+                    + fp * N_VARS;
+
+    // Load left state
+    State UL;
     for (int v = 0; v < N_VARS; ++v) {
-        UL[v] = U_L[idx * N_VARS + v];
-        UR[v] = U_R[idx * N_VARS + v];
+        UL[v] = U_fp[left_offset + v];
     }
 
-    // Load normal
-    Real nx = normals[idx * 2 + 0];
-    Real ny = normals[idx * 2 + 1];
+    // Load normal (face-indexed)
+    int norm_idx = face * n_fp_per_face + fp;
+    Real nx = normals[norm_idx * 2 + 0];
+    Real ny = normals[norm_idx * 2 + 1];
+
+    // Get right state
+    State UR;
+    if (right_elem >= 0) {
+        // Interior face: load from neighboring element
+        int right_offset = right_elem * 4 * n_fp_per_face * N_VARS
+                         + right_local * n_fp_per_face * N_VARS
+                         + fp * N_VARS;
+        for (int v = 0; v < N_VARS; ++v) {
+            UR[v] = U_fp[right_offset + v];
+        }
+    } else {
+        // Boundary face: compute ghost state
+        BCType bct = static_cast<BCType>(bc_type[face]);
+        int bc_idx = bc_face_map[face];  // Index into bc_data
+        UR = computeGhostState(UL, nx, ny, bct, bc_data, bc_idx, gamma);
+    }
 
     // Compute Riemann flux
     State F;
@@ -234,12 +347,39 @@ __global__ void computeRiemannFluxKernel(
             break;
     }
 
-    // Store result
+    // Store result (face-indexed for correction step)
+    int out_idx = face * n_fp_per_face + fp;
     for (int v = 0; v < N_VARS; ++v) {
-        F_common[idx * N_VARS + v] = F[v];
+        F_common[out_idx * N_VARS + v] = F[v];
     }
 }
 
+void computeRiemannFluxWithBC(
+    const Real* U_fp,
+    Real* F_common,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const int* face_right_elem,
+    const int* face_right_local,
+    const int* bc_type,
+    const Real* bc_data,
+    const int* bc_face_map,
+    const Real* normals,
+    Real gamma,
+    RiemannSolver solver_type,
+    int n_faces, int n_fp_per_face,
+    cudaStream_t stream)
+{
+    if (n_faces == 0) return;
+    int threads = n_fp_per_face;
+    int blocks = n_faces;
+    computeRiemannFluxWithBCKernel<<<blocks, threads, 0, stream>>>(
+        U_fp, F_common, face_left_elem, face_left_local,
+        face_right_elem, face_right_local, bc_type, bc_data, bc_face_map,
+        normals, gamma, solver_type, n_faces, n_fp_per_face);
+}
+
+// Keep old interface for compatibility (deprecated)
 void computeRiemannFlux(const Real* U_L, const Real* U_R,
                          Real* F_common,
                          const Real* normals,
@@ -248,10 +388,8 @@ void computeRiemannFlux(const Real* U_L, const Real* U_R,
                          int n_faces, int n_fp_per_face,
                          cudaStream_t stream)
 {
-    int threads = n_fp_per_face;
-    int blocks = n_faces;
-    computeRiemannFluxKernel<<<blocks, threads, 0, stream>>>(
-        U_L, U_R, F_common, normals, gamma, solver_type, n_faces, n_fp_per_face);
+    // Old kernel - deprecated, kept for compatibility
+    // This assumes face-indexed U_L and U_R arrays
 }
 
 // ============================================================================
@@ -411,6 +549,68 @@ void computeFluxDivergence(const Real* Fx, const Real* Fy,
         Fx, Fy, div_F, diff_xi, diff_eta, Jinv, J, n_elem, n_sp);
 }
 
+// Scatter face-indexed common flux to element-indexed format
+__global__ void scatterFluxToElementsKernel(
+    const Real* __restrict__ F_face,           // Face-indexed common flux
+    Real* __restrict__ F_elem,                 // Element-indexed flux (output)
+    const int* __restrict__ face_left_elem,
+    const int* __restrict__ face_left_local,
+    const int* __restrict__ face_right_elem,
+    const int* __restrict__ face_right_local,
+    int n_faces, int n_fp_per_face)
+{
+    int face = blockIdx.x;
+    int fp = threadIdx.x;
+
+    if (face >= n_faces || fp >= n_fp_per_face) return;
+
+    int left_elem = face_left_elem[face];
+    int left_local = face_left_local[face];
+    int right_elem = face_right_elem[face];
+    int right_local = face_right_local[face];
+
+    // Face-indexed source
+    int face_offset = face * n_fp_per_face * N_VARS + fp * N_VARS;
+
+    // Element-indexed destination for left element
+    int left_offset = left_elem * 4 * n_fp_per_face * N_VARS
+                    + left_local * n_fp_per_face * N_VARS
+                    + fp * N_VARS;
+
+    for (int v = 0; v < N_VARS; ++v) {
+        F_elem[left_offset + v] = F_face[face_offset + v];
+    }
+
+    // For interior faces, also scatter to right element (normal points opposite)
+    if (right_elem >= 0) {
+        int right_offset = right_elem * 4 * n_fp_per_face * N_VARS
+                         + right_local * n_fp_per_face * N_VARS
+                         + fp * N_VARS;
+        // Note: common flux is the same, sign handling done in correction step
+        for (int v = 0; v < N_VARS; ++v) {
+            F_elem[right_offset + v] = F_face[face_offset + v];
+        }
+    }
+}
+
+void scatterFluxToElements(
+    const Real* F_face,
+    Real* F_elem,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const int* face_right_elem,
+    const int* face_right_local,
+    int n_faces, int n_fp_per_face,
+    cudaStream_t stream)
+{
+    if (n_faces == 0) return;
+    int threads = n_fp_per_face;
+    int blocks = n_faces;
+    scatterFluxToElementsKernel<<<blocks, threads, 0, stream>>>(
+        F_face, F_elem, face_left_elem, face_left_local,
+        face_right_elem, face_right_local, n_faces, n_fp_per_face);
+}
+
 __global__ void applyFRCorrectionKernel(
     Real* __restrict__ div_F,
     const Real* __restrict__ F_diff,
@@ -466,31 +666,40 @@ void applyFRCorrection(Real* div_F,
 // ============================================================================
 
 __global__ void applyBoundaryConditionsKernel(
-    const Real* __restrict__ U_int,
-    Real* __restrict__ U_ghost,
+    Real* __restrict__ U_fp,           // Flux point states (element-indexed)
+    const int* __restrict__ elem_idx,  // Element index for each BC face
+    const int* __restrict__ local_face,// Local face index (0-3) for each BC face
     const int* __restrict__ bc_type,
     const Real* __restrict__ bc_data,
     const Real* __restrict__ normals,
     Real gamma,
     int n_bc_faces, int n_fp_per_face)
 {
-    int face = blockIdx.x;
+    int bc_face = blockIdx.x;
     int fp = threadIdx.x;
 
-    if (face >= n_bc_faces || fp >= n_fp_per_face) return;
+    if (bc_face >= n_bc_faces || fp >= n_fp_per_face) return;
 
-    int idx = face * n_fp_per_face + fp;
-    BCType type = static_cast<BCType>(bc_type[face]);
+    // Get element and local face for this boundary face
+    int elem = elem_idx[bc_face];
+    int lf = local_face[bc_face];
 
-    // Load interior state
+    // Compute index into U_fp: organized as [elem][local_face][flux_pt][var]
+    // U_fp layout: elem * (4 * n_fp * N_VARS) + lf * (n_fp * N_VARS) + fp * N_VARS + var
+    int fp_offset = elem * 4 * n_fp_per_face * N_VARS + lf * n_fp_per_face * N_VARS + fp * N_VARS;
+
+    BCType type = static_cast<BCType>(bc_type[bc_face]);
+
+    // Load interior state from flux points
     State U;
     for (int v = 0; v < N_VARS; ++v) {
-        U[v] = U_int[idx * N_VARS + v];
+        U[v] = U_fp[fp_offset + v];
     }
 
-    // Load normal
-    Real nx = normals[idx * 2 + 0];
-    Real ny = normals[idx * 2 + 1];
+    // Load normal (indexed by bc_face, not global face)
+    int norm_idx = bc_face * n_fp_per_face + fp;
+    Real nx = normals[norm_idx * 2 + 0];
+    Real ny = normals[norm_idx * 2 + 1];
 
     IdealGas gas(gamma);
     State ghost;
@@ -622,13 +831,16 @@ __global__ void applyBoundaryConditionsKernel(
             break;
     }
 
-    // Store ghost state
+    // Store ghost state back to U_fp (replaces interior state for BC flux computation)
+    // The Riemann solver will use this ghost state for boundary faces
     for (int var = 0; var < N_VARS; ++var) {
-        U_ghost[idx * N_VARS + var] = ghost[var];
+        U_fp[fp_offset + var] = ghost[var];
     }
 }
 
-void applyBoundaryConditions(const Real* U_int, Real* U_ghost,
+void applyBoundaryConditions(Real* U_fp,
+                              const int* elem_idx,
+                              const int* local_face,
                               const int* bc_type,
                               const Real* bc_data,
                               const Real* normals,
@@ -636,10 +848,11 @@ void applyBoundaryConditions(const Real* U_int, Real* U_ghost,
                               int n_bc_faces, int n_fp_per_face,
                               cudaStream_t stream)
 {
+    if (n_bc_faces == 0) return;
     int threads = n_fp_per_face;
     int blocks = n_bc_faces;
     applyBoundaryConditionsKernel<<<blocks, threads, 0, stream>>>(
-        U_int, U_ghost, bc_type, bc_data, normals, gamma, n_bc_faces, n_fp_per_face);
+        U_fp, elem_idx, local_face, bc_type, bc_data, normals, gamma, n_bc_faces, n_fp_per_face);
 }
 
 // ============================================================================
