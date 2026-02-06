@@ -7,6 +7,20 @@
 
 namespace zhijian {
 
+// Debug helper to check for NaN in GPU array
+static bool checkNaN(const DeviceArray<Real>& arr, const char* name, size_t size) {
+    std::vector<Real> host(size);
+    const_cast<DeviceArray<Real>&>(arr).copyToHost(host);
+    for (size_t i = 0; i < size; ++i) {
+        if (std::isnan(host[i]) || std::isinf(host[i])) {
+            std::cerr << "DEBUG: NaN/Inf found in " << name << " at index " << i 
+                      << " (value=" << host[i] << ")" << std::endl;
+            return true;
+        }
+    }
+    return false;
+}
+
 FRSolver::FRSolver()
     : mesh_(nullptr), time_(0.0), iter_(0),
       n_sp_tri_(0), n_sp_quad_(0) {}
@@ -317,16 +331,26 @@ void FRSolver::computeInviscidFlux_GPU() {
     int n_sp = n_sp_quad_;
     int n_fp = FluxPoints::numPointsPerEdge(params_.poly_order);
 
+    // Check initial solution
+    size_t sol_size = n_elem * n_sp * N_VARS;
+    if (checkNaN(gpu_data_->U, "U (initial)", sol_size)) return;
+
     // Compute flux at solution points
     gpu::computeInviscidFluxSP(gpu_data_->U.data(),
                                 gpu_data_->Fx_sp.data(),  // x-flux at solution points
                                 gpu_data_->Fy_sp.data(),  // y-flux at solution points
                                 params_.gamma, n_elem, n_sp, stream_->get());
+    stream_->sync();
+    if (checkNaN(gpu_data_->Fx_sp, "Fx_sp", sol_size)) return;
+    if (checkNaN(gpu_data_->Fy_sp, "Fy_sp", sol_size)) return;
 
     // Interpolate solution to flux points
     gpu::interpolateToFluxPoints(gpu_data_->U.data(), gpu_data_->U_fp.data(),
                                   gpu_data_->interp_fp.data(),
                                   n_elem, n_sp, 4, n_fp, stream_->get());
+    stream_->sync();
+    size_t fp_size = n_elem * 4 * n_fp * N_VARS;
+    if (checkNaN(gpu_data_->U_fp, "U_fp", fp_size)) return;
 
     // Build BC data for Riemann flux kernel
     int n_faces = static_cast<int>(mesh_->numFaces());
@@ -420,6 +444,10 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_right_local.data(),
         n_faces, n_fp, stream_->get());
 
+    // Check Riemann flux result
+    stream_->sync();
+    if (checkNaN(gpu_data_->F_fp, "F_fp (after scatter)", fp_size)) return;
+
     // Compute flux divergence at solution points
     // dUdt = -∇·F (negative divergence of flux)
     gpu::computeFluxDivergence(gpu_data_->Fx_sp.data(), gpu_data_->Fy_sp.data(),
@@ -427,6 +455,8 @@ void FRSolver::computeInviscidFlux_GPU() {
                                 gpu_data_->diff_xi.data(), gpu_data_->diff_eta.data(),
                                 gpu_data_->Jinv.data(), gpu_data_->J.data(),
                                 n_elem, n_sp, stream_->get());
+    stream_->sync();
+    if (checkNaN(gpu_data_->dUdt, "dUdt (after divergence)", sol_size)) return;
 
     // Apply FR correction using common flux
     // Note: For a full FR implementation, this should use (F_common - F_interior)
@@ -434,6 +464,8 @@ void FRSolver::computeInviscidFlux_GPU() {
     gpu::applyFRCorrection(gpu_data_->dUdt.data(), gpu_data_->F_fp.data(),
                             gpu_data_->corr_deriv.data(), gpu_data_->J.data(),
                             n_elem, n_sp, 4, n_fp, stream_->get());
+    stream_->sync();
+    if (checkNaN(gpu_data_->dUdt, "dUdt (after FR correction)", sol_size)) return;
 }
 
 void FRSolver::computeGradients_GPU() {
