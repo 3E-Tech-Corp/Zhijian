@@ -782,10 +782,18 @@ __global__ void applyFRCorrectionKernel(
         correction += edge_corr;
     }
 
-    // Add correction to divergence
+    // Add correction to divergence (with clamping to prevent blowup)
     Real Jdet = J[elem * n_sp + sp];
     int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
-    div_F[idx] += correction * Jdet;
+    
+    // Clamp correction to reasonable magnitude before adding
+    Real corr_contrib = correction * Jdet;
+    corr_contrib = fmax(fmin(corr_contrib, 1e6), -1e6);
+    
+    div_F[idx] += corr_contrib;
+    
+    // Also clamp final dUdt to prevent blowup
+    div_F[idx] = fmax(fmin(div_F[idx], 1e6), -1e6);
 }
 
 void applyFRCorrection(Real* div_F,
