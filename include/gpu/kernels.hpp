@@ -97,6 +97,19 @@ void computeViscousFluxSP(const Real* U,
                            int n_elem, int n_sp,
                            cudaStream_t stream = 0);
 
+// Compute interior normal flux at flux points (element-indexed)
+void computeInviscidFluxAtFP(const Real* U_fp, Real* F_fp,
+                              const Real* face_normals,
+                              const int* face_left_elem,
+                              const int* face_left_local,
+                              Real gamma,
+                              int n_elem, int n_edges, int n_fp_per_edge,
+                              cudaStream_t stream = 0);
+
+// Compute flux difference: F_diff = F_common - F_int
+void computeFluxDifference(const Real* F_common, const Real* F_int,
+                            Real* F_diff, int n, cudaStream_t stream = 0);
+
 // Compute common viscous flux at flux points (BR2 scheme)
 void computeViscousFluxFP(const Real* U_L, const Real* U_R,
                            const Real* dUdx_L, const Real* dUdy_L,

@@ -400,7 +400,8 @@ void FRSolver::computeInviscidFlux_GPU() {
         params_.gamma, params_.riemann,
         n_faces, n_fp, stream_->get());
 
-    // Scatter face-indexed flux to element-indexed format for FR correction
+    // Scatter face-indexed common flux to element-indexed format
+    // Store in F_fp: this is F_common at flux points
     gpu::scatterFluxToElements(
         F_face.data(),
         gpu_data_->F_fp.data(),
@@ -410,15 +411,31 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_right_local.data(),
         n_faces, n_fp, stream_->get());
 
-    // Compute flux divergence at solution points
+    // Compute interior flux at flux points: F_int = F(U_fp)
+    // Allocate temporary storage for interior flux at flux points
+    size_t fp_size = n_elem * 4 * n_fp * N_VARS;
+    DeviceArray<Real> F_int_fp(fp_size);
+    gpu::computeInviscidFluxAtFP(gpu_data_->U_fp.data(), F_int_fp.data(),
+                                  gpu_data_->face_normals.data(),
+                                  gpu_data_->face_left_elem.data(),
+                                  gpu_data_->face_left_local.data(),
+                                  params_.gamma, n_elem, 4, n_fp, stream_->get());
+
+    // Compute flux difference: F_diff = F_common - F_int
+    // This is what the FR correction actually needs
+    DeviceArray<Real> F_diff(fp_size);
+    gpu::computeFluxDifference(gpu_data_->F_fp.data(), F_int_fp.data(),
+                                F_diff.data(), fp_size, stream_->get());
+
+    // Compute flux divergence at solution points using interior flux
     gpu::computeFluxDivergence(gpu_data_->dUdt.data(), gpu_data_->dUdx.data(),
                                 gpu_data_->dUdt.data(),
                                 gpu_data_->diff_xi.data(), gpu_data_->diff_eta.data(),
                                 gpu_data_->Jinv.data(), gpu_data_->J.data(),
                                 n_elem, n_sp, stream_->get());
 
-    // Apply FR correction
-    gpu::applyFRCorrection(gpu_data_->dUdt.data(), gpu_data_->F_fp.data(),
+    // Apply FR correction using flux DIFFERENCE (not just common flux)
+    gpu::applyFRCorrection(gpu_data_->dUdt.data(), F_diff.data(),
                             gpu_data_->corr_deriv.data(), gpu_data_->J.data(),
                             n_elem, n_sp, 4, n_fp, stream_->get());
 }
@@ -623,14 +640,17 @@ Real FRSolver::computeTimeStep() const {
 }
 
 Real FRSolver::computeResidual() const {
-    Real norm_sq = 0.0;
+    // Compute L2 norm of dU/dt (the actual residual) from GPU
+    Index n_elem = mesh_->numElements();
+    int n_sp = n_sp_quad_;
+    size_t size = n_elem * n_sp * N_VARS;
 
-    for (Index i = 0; i < mesh_->numElements(); ++i) {
-        for (const auto& s : solution_[i].sol_pts) {
-            for (int v = 0; v < N_VARS; ++v) {
-                norm_sq += s[v] * s[v];
-            }
-        }
+    std::vector<Real> dUdt_host(size);
+    gpu_data_->dUdt.copyToHost(dUdt_host);
+
+    Real norm_sq = 0.0;
+    for (size_t i = 0; i < size; ++i) {
+        norm_sq += dUdt_host[i] * dUdt_host[i];
     }
 
     return sqrt(norm_sq);
