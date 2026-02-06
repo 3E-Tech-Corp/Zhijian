@@ -205,9 +205,9 @@ public:
                      Real nx, Real ny, Real gamma) {
         IdealGas gas(gamma);
 
-        // Roe averages
-        Real rhoL = UL.rho();
-        Real rhoR = UR.rho();
+        // Roe averages with safety guards
+        Real rhoL = fmax(UL.rho(), 1e-10);
+        Real rhoR = fmax(UR.rho(), 1e-10);
         Real uL = UL.rhou() / rhoL;
         Real vL = UL.rhov() / rhoL;
         Real uR = UR.rhou() / rhoR;
@@ -217,7 +217,7 @@ public:
 
         Real sqrtRhoL = sqrt(rhoL);
         Real sqrtRhoR = sqrt(rhoR);
-        Real denom = sqrtRhoL + sqrtRhoR;
+        Real denom = fmax(sqrtRhoL + sqrtRhoR, 1e-10);
 
         Real rhoRoe = sqrtRhoL * sqrtRhoR;
         Real uRoe = (sqrtRhoL * uL + sqrtRhoR * uR) / denom;
@@ -226,7 +226,9 @@ public:
 
         Real vnRoe = uRoe * nx + vRoe * ny;
         Real qsqRoe = uRoe * uRoe + vRoe * vRoe;
-        Real cRoe = sqrt((gamma - 1.0) * (HRoe - 0.5 * qsqRoe));
+        // Safety: ensure argument to sqrt is positive
+        Real cRoe_sq = fmax((gamma - 1.0) * (HRoe - 0.5 * qsqRoe), 1e-10);
+        Real cRoe = sqrt(cRoe_sq);
 
         // Eigenvalues
         Real lambda1 = fabs(vnRoe - cRoe);
@@ -239,17 +241,18 @@ public:
         if (lambda1 < eps) lambda1 = (lambda1 * lambda1 + eps * eps) / (2.0 * eps);
         if (lambda4 < eps) lambda4 = (lambda4 * lambda4 + eps * eps) / (2.0 * eps);
 
-        // Wave strengths
+        // Wave strengths (with safety for division by cRoe)
         Real drho = rhoR - rhoL;
         Real du = uR - uL;
         Real dv = vR - vL;
         Real dp = gas.pressure(UR) - gas.pressure(UL);
         Real dvn = du * nx + dv * ny;
 
-        Real alpha1 = (dp - rhoRoe * cRoe * dvn) / (2.0 * cRoe * cRoe);
-        Real alpha2 = drho - dp / (cRoe * cRoe);
+        Real cRoe_sq_safe = fmax(cRoe * cRoe, 1e-10);
+        Real alpha1 = (dp - rhoRoe * cRoe * dvn) / (2.0 * cRoe_sq_safe);
+        Real alpha2 = drho - dp / cRoe_sq_safe;
         Real alpha3 = rhoRoe * (dv * nx - du * ny);  // tangential
-        Real alpha4 = (dp + rhoRoe * cRoe * dvn) / (2.0 * cRoe * cRoe);
+        Real alpha4 = (dp + rhoRoe * cRoe * dvn) / (2.0 * cRoe_sq_safe);
 
         // Flux
         State FL = gas.fluxNormal(UL, nx, ny);
@@ -296,14 +299,15 @@ public:
                       Real nx, Real ny, Real gamma) {
         IdealGas gas(gamma);
 
-        Real rhoL = UL.rho();
-        Real rhoR = UR.rho();
+        // Safety guards for density
+        Real rhoL = fmax(UL.rho(), 1e-10);
+        Real rhoR = fmax(UR.rho(), 1e-10);
         Real uL = UL.rhou() / rhoL;
         Real vL = UL.rhov() / rhoL;
         Real uR = UR.rhou() / rhoR;
         Real vR = UR.rhov() / rhoR;
-        Real pL = gas.pressure(UL);
-        Real pR = gas.pressure(UR);
+        Real pL = fmax(gas.pressure(UL), 1e-10);
+        Real pR = fmax(gas.pressure(UR), 1e-10);
         Real cL = gas.soundSpeed(UL);
         Real cR = gas.soundSpeed(UR);
 
@@ -312,15 +316,17 @@ public:
 
         // Wave speed estimates (pressure-based)
         Real pstar = 0.5 * (pL + pR) - 0.5 * (vnR - vnL) * 0.5 * (rhoL + rhoR) * 0.5 * (cL + cR);
-        pstar = fmax(pstar, 0.0);
+        pstar = fmax(pstar, 1e-10);
 
         Real qL = (pstar <= pL) ? 1.0 : sqrt(1.0 + (gamma + 1.0) / (2.0 * gamma) * (pstar / pL - 1.0));
         Real qR = (pstar <= pR) ? 1.0 : sqrt(1.0 + (gamma + 1.0) / (2.0 * gamma) * (pstar / pR - 1.0));
 
         Real SL = vnL - cL * qL;
         Real SR = vnR + cR * qR;
-        Real SM = (pR - pL + rhoL * vnL * (SL - vnL) - rhoR * vnR * (SR - vnR))
-                  / (rhoL * (SL - vnL) - rhoR * (SR - vnR));
+        // Safety: avoid division by zero in SM computation
+        Real denom_SM = rhoL * (SL - vnL) - rhoR * (SR - vnR);
+        if (fabs(denom_SM) < 1e-10) denom_SM = (denom_SM >= 0) ? 1e-10 : -1e-10;
+        Real SM = (pR - pL + rhoL * vnL * (SL - vnL) - rhoR * vnR * (SR - vnR)) / denom_SM;
 
         // Compute flux
         if (SL >= 0.0) {
@@ -328,13 +334,17 @@ public:
         } else if (SR <= 0.0) {
             return gas.fluxNormal(UR, nx, ny);
         } else if (SM >= 0.0) {
-            // Star left state
-            Real factor = rhoL * (SL - vnL) / (SL - SM);
+            // Star left state (with safety for division)
+            Real denom_L = (SL - SM);
+            if (fabs(denom_L) < 1e-10) denom_L = (denom_L >= 0) ? 1e-10 : -1e-10;
+            Real denom_vnL = (SL - vnL);
+            if (fabs(denom_vnL) < 1e-10) denom_vnL = (denom_vnL >= 0) ? 1e-10 : -1e-10;
+            Real factor = rhoL * denom_vnL / denom_L;
             State Ustar;
             Ustar[0] = factor;
             Ustar[1] = factor * (uL + (SM - vnL) * nx);
             Ustar[2] = factor * (vL + (SM - vnL) * ny);
-            Ustar[3] = factor * (UL.rhoE() / rhoL + (SM - vnL) * (SM + pL / (rhoL * (SL - vnL))));
+            Ustar[3] = factor * (UL.rhoE() / rhoL + (SM - vnL) * (SM + pL / (rhoL * denom_vnL)));
 
             State FL = gas.fluxNormal(UL, nx, ny);
             State F;
@@ -343,13 +353,17 @@ public:
             }
             return F;
         } else {
-            // Star right state
-            Real factor = rhoR * (SR - vnR) / (SR - SM);
+            // Star right state (with safety for division)
+            Real denom_R = (SR - SM);
+            if (fabs(denom_R) < 1e-10) denom_R = (denom_R >= 0) ? 1e-10 : -1e-10;
+            Real denom_vnR = (SR - vnR);
+            if (fabs(denom_vnR) < 1e-10) denom_vnR = (denom_vnR >= 0) ? 1e-10 : -1e-10;
+            Real factor = rhoR * denom_vnR / denom_R;
             State Ustar;
             Ustar[0] = factor;
             Ustar[1] = factor * (uR + (SM - vnR) * nx);
             Ustar[2] = factor * (vR + (SM - vnR) * ny);
-            Ustar[3] = factor * (UR.rhoE() / rhoR + (SM - vnR) * (SM + pR / (rhoR * (SR - vnR))));
+            Ustar[3] = factor * (UR.rhoE() / rhoR + (SM - vnR) * (SM + pR / (rhoR * denom_vnR)));
 
             State FR = gas.fluxNormal(UR, nx, ny);
             State F;
