@@ -327,17 +327,23 @@ __device__ State computeGhostState(const State& U_int, Real nx, Real ny,
             Real c_b = 0.25 * (gamma - 1.0) * (R_plus - R_minus);
 
             Real rho_b, u_b, v_b, p_b;
+            // Safety: ensure c_b is positive
+            c_b = fmax(c_b, 1e-10);
             if (vn_b >= 0) {
                 Real vt_i = u_i * (-ny) + v_i * nx;
-                Real s_i = gas.pressure(U_int) / pow(rho_i, gamma);
+                Real s_i = gas.pressure(U_int) / pow(fmax(rho_i, 1e-10), gamma);
+                s_i = fmax(s_i, 1e-10);  // Ensure positive entropy
                 rho_b = pow(c_b * c_b / (gamma * s_i), 1.0 / (gamma - 1.0));
+                rho_b = fmax(rho_b, 1e-10);  // Ensure positive density
                 p_b = rho_b * c_b * c_b / gamma;
                 u_b = vn_b * nx - vt_i * ny;
                 v_b = vn_b * ny + vt_i * nx;
             } else {
                 Real vt_inf = u_inf * (-ny) + v_inf * nx;
-                Real s_inf = p_inf / pow(rho_inf, gamma);
+                Real s_inf = p_inf / pow(fmax(rho_inf, 1e-10), gamma);
+                s_inf = fmax(s_inf, 1e-10);  // Ensure positive entropy
                 rho_b = pow(c_b * c_b / (gamma * s_inf), 1.0 / (gamma - 1.0));
+                rho_b = fmax(rho_b, 1e-10);  // Ensure positive density
                 p_b = rho_b * c_b * c_b / gamma;
                 u_b = vn_b * nx - vt_inf * ny;
                 v_b = vn_b * ny + vt_inf * nx;
@@ -418,6 +424,11 @@ __global__ void computeRiemannFluxWithBCKernel(
         // Boundary face: compute ghost state
         BCType bct = static_cast<BCType>(bc_type[face]);
         int bc_idx = bc_face_map[face];  // Index into bc_data
+        // Safety check: if bc_idx is invalid, just reflect (slip wall)
+        if (bc_idx < 0) {
+            bct = BCType::SlipWall;
+            bc_idx = 0;
+        }
         UR = computeGhostState(UL, nx, ny, bct, bc_data, bc_idx, gamma);
     }
 
