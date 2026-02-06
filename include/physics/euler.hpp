@@ -29,11 +29,15 @@ public:
         return pressure(U) / (U.rho() * R_gas);
     }
 
-    // Compute speed of sound
+    // Compute speed of sound (with safety for invalid states)
     ZHIJIAN_HD
     Real soundSpeed(const State& U) const {
         Real p = pressure(U);
-        return sqrt(gamma_ * p / U.rho());
+        Real rho = U.rho();
+        // Safety: clamp to avoid sqrt of negative
+        p = fmax(p, 1e-10);
+        rho = fmax(rho, 1e-10);
+        return sqrt(gamma_ * p / rho);
     }
 
     // Compute Mach number
@@ -127,10 +131,10 @@ public:
     // Compute normal flux F * nx + G * ny
     ZHIJIAN_HD
     State fluxNormal(const State& U, Real nx, Real ny) const {
-        Real rho = U.rho();
+        Real rho = fmax(U.rho(), 1e-10);  // Safety: avoid division by zero
         Real u = U.rhou() / rho;
         Real v = U.rhov() / rho;
-        Real p = pressure(U);
+        Real p = fmax(pressure(U), 1e-10);  // Safety: ensure positive pressure
         Real H = totalEnthalpy(U);
         Real vn = u * nx + v * ny;
 
