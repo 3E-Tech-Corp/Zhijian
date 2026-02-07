@@ -199,6 +199,9 @@ void rkStage3(Real* U, const Real* U0, const Real* U2, const Real* R,
               int n, Real dt,
               cudaStream_t stream = 0);
 
+// Positivity-preserving limiter: enforces rho > 0, p > 0, bounded velocity
+void enforcePositivity(Real* U, int n_states, cudaStream_t stream = 0);
+
 // ============================================================================
 // Utility Operations
 // ============================================================================

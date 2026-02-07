@@ -1004,8 +1004,70 @@ void applyBoundaryConditions(Real* U_fp,
 }
 
 // ============================================================================
-// Time Integration Kernels (SSP-RK3)
+// Time Integration Kernels (SSP-RK3) with Positivity Preservation
 // ============================================================================
+
+// Freestream reference values for positivity preservation
+constexpr Real RHO_MIN = 0.1;       // 10% of freestream density
+constexpr Real RHO_MAX = 10.0;      // 10x freestream density
+constexpr Real P_MIN = 1000.0;      // Minimum pressure (Pa)
+constexpr Real P_MAX = 1e7;         // Maximum pressure (Pa)
+constexpr Real VEL_MAX = 1000.0;    // Maximum velocity magnitude (m/s)
+constexpr Real GAMMA_PP = 1.4;      // Gamma for positivity preservation
+
+// Positivity-preserving limiter kernel
+// Enforces: rho > 0, p > 0, |v| < v_max
+__global__ void enforcePositivityKernel(Real* U, int n_states)
+{
+    int state_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (state_idx >= n_states) return;
+    
+    int base = state_idx * N_VARS;
+    
+    // Load conservative variables
+    Real rho = U[base + 0];
+    Real rhou = U[base + 1];
+    Real rhov = U[base + 2];
+    Real rhoE = U[base + 3];
+    
+    // Clamp density
+    Real rho_new = fmax(RHO_MIN, fmin(RHO_MAX, rho));
+    
+    // Compute velocities (with safety)
+    Real u = rhou / fmax(rho_new, 1e-10);
+    Real v = rhov / fmax(rho_new, 1e-10);
+    
+    // Clamp velocity magnitude
+    Real vel_mag = sqrt(u*u + v*v);
+    if (vel_mag > VEL_MAX) {
+        Real scale = VEL_MAX / vel_mag;
+        u *= scale;
+        v *= scale;
+    }
+    
+    // Compute pressure from original state
+    Real ke = 0.5 * rho_new * (u*u + v*v);
+    Real p = (GAMMA_PP - 1.0) * (rhoE - ke);
+    
+    // Clamp pressure
+    p = fmax(P_MIN, fmin(P_MAX, p));
+    
+    // Recompute total energy from clamped values
+    Real E = p / (GAMMA_PP - 1.0) + ke;
+    
+    // Store corrected state
+    U[base + 0] = rho_new;
+    U[base + 1] = rho_new * u;
+    U[base + 2] = rho_new * v;
+    U[base + 3] = E;
+}
+
+void enforcePositivity(Real* U, int n_states, cudaStream_t stream)
+{
+    int threads = 256;
+    int blocks = (n_states + threads - 1) / threads;
+    enforcePositivityKernel<<<blocks, threads, 0, stream>>>(U, n_states);
+}
 
 __global__ void rkStage1Kernel(Real* U1, const Real* U0, const Real* R,
                                 int n, Real dt)
@@ -1021,6 +1083,8 @@ void rkStage1(Real* U1, const Real* U0, const Real* R,
     int threads = 256;
     int blocks = (n + threads - 1) / threads;
     rkStage1Kernel<<<blocks, threads, 0, stream>>>(U1, U0, R, n, dt);
+    // Enforce positivity after stage
+    enforcePositivity(U1, n / N_VARS, stream);
 }
 
 __global__ void rkStage2Kernel(Real* U2, const Real* U0, const Real* U1,
@@ -1037,6 +1101,8 @@ void rkStage2(Real* U2, const Real* U0, const Real* U1, const Real* R,
     int threads = 256;
     int blocks = (n + threads - 1) / threads;
     rkStage2Kernel<<<blocks, threads, 0, stream>>>(U2, U0, U1, R, n, dt);
+    // Enforce positivity after stage
+    enforcePositivity(U2, n / N_VARS, stream);
 }
 
 __global__ void rkStage3Kernel(Real* U, const Real* U0, const Real* U2,
@@ -1053,6 +1119,8 @@ void rkStage3(Real* U, const Real* U0, const Real* U2, const Real* R,
     int threads = 256;
     int blocks = (n + threads - 1) / threads;
     rkStage3Kernel<<<blocks, threads, 0, stream>>>(U, U0, U2, R, n, dt);
+    // Enforce positivity after stage
+    enforcePositivity(U, n / N_VARS, stream);
 }
 
 // ============================================================================
