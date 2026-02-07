@@ -83,7 +83,7 @@ void computeRiemannFluxWithBC(
     const Real* normals,
     Real gamma,
     RiemannSolver solver_type,
-    int n_faces, int n_fp_per_face,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
     cudaStream_t stream = 0);
 
 // Compute viscous flux at solution points
@@ -144,7 +144,7 @@ void scatterFluxToElements(
     const int* face_left_local,
     const int* face_right_elem,
     const int* face_right_local,
-    int n_faces, int n_fp_per_face,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
     cudaStream_t stream = 0);
 
 // Apply FR correction at solution points
@@ -177,7 +177,7 @@ void applyBoundaryConditions(Real* U_fp,
                               const Real* bc_data,
                               const Real* normals,
                               Real gamma,
-                              int n_bc_faces, int n_fp_per_face,
+                              int n_bc_faces, int n_fp_per_face, int n_faces_per_elem,
                               cudaStream_t stream = 0);
 
 // ============================================================================

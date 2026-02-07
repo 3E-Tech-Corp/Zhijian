@@ -343,6 +343,7 @@ void FRSolver::computeInviscidFlux_GPU() {
     int n_elem = static_cast<int>(mesh_->numElements());
     int n_sp = n_sp_quad_;
     int n_fp = FluxPoints::numPointsPerEdge(params_.poly_order);
+    int n_edges = 4;  // Currently only support quads
 
     // Check initial solution
     size_t sol_size = n_elem * n_sp * N_VARS;
@@ -450,7 +451,7 @@ void FRSolver::computeInviscidFlux_GPU() {
         d_bc_face_map.data(),
         gpu_data_->face_normals.data(),
         params_.gamma, params_.riemann,
-        n_faces, n_fp, stream_->get());
+        n_faces, n_fp, n_edges, stream_->get());
 
     // Debug: check F_face before scatter
     stream_->synchronize();
@@ -465,7 +466,7 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_left_local.data(),
         gpu_data_->face_right_elem.data(),
         gpu_data_->face_right_local.data(),
-        n_faces, n_fp, stream_->get());
+        n_faces, n_fp, n_edges, stream_->get());
 
     // Check Riemann flux result
     stream_->synchronize();
@@ -539,6 +540,7 @@ void FRSolver::applyBoundaryConditions_GPU() {
     std::vector<Real> normals;
 
     int n_fp = FluxPoints::numPointsPerEdge(params_.poly_order);
+    int n_edges = 4;  // Currently only support quads
 
     // Far-field reference state (computed once)
     Real rho_inf = params_.rho_inf;
@@ -654,7 +656,7 @@ void FRSolver::applyBoundaryConditions_GPU() {
                                   d_bc_data.data(),
                                   d_normals.data(),
                                   params_.gamma,
-                                  n_bc_faces, n_fp, stream_->get());
+                                  n_bc_faces, n_fp, n_edges, stream_->get());
 }
 
 void FRSolver::exchangeHalo() {

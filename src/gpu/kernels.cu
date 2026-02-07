@@ -370,7 +370,7 @@ __global__ void computeRiemannFluxWithBCKernel(
     const Real* __restrict__ normals,
     Real gamma,
     RiemannSolver solver_type,
-    int n_faces, int n_fp_per_face)
+    int n_faces, int n_fp_per_face, int n_faces_per_elem)
 {
     int face = blockIdx.x;
     int fp = threadIdx.x;
@@ -385,7 +385,7 @@ __global__ void computeRiemannFluxWithBCKernel(
 
     // Compute offset into U_fp for left state
     // U_fp layout: [elem][local_face][flux_pt][var]
-    int left_offset = left_elem * 4 * n_fp_per_face * N_VARS
+    int left_offset = left_elem * n_faces_per_elem * n_fp_per_face * N_VARS
                     + left_local * n_fp_per_face * N_VARS
                     + fp * N_VARS;
 
@@ -404,7 +404,7 @@ __global__ void computeRiemannFluxWithBCKernel(
     State UR;
     if (right_elem >= 0) {
         // Interior face: load from neighboring element
-        int right_offset = right_elem * 4 * n_fp_per_face * N_VARS
+        int right_offset = right_elem * n_faces_per_elem * n_fp_per_face * N_VARS
                          + right_local * n_fp_per_face * N_VARS
                          + fp * N_VARS;
         for (int v = 0; v < N_VARS; ++v) {
@@ -504,7 +504,7 @@ void computeRiemannFluxWithBC(
     const Real* normals,
     Real gamma,
     RiemannSolver solver_type,
-    int n_faces, int n_fp_per_face,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
     cudaStream_t stream)
 {
     if (n_faces == 0) return;
@@ -513,7 +513,7 @@ void computeRiemannFluxWithBC(
     computeRiemannFluxWithBCKernel<<<blocks, threads, 0, stream>>>(
         U_fp, F_common, face_left_elem, face_left_local,
         face_right_elem, face_right_local, bc_type, bc_data, bc_face_map,
-        normals, gamma, solver_type, n_faces, n_fp_per_face);
+        normals, gamma, solver_type, n_faces, n_fp_per_face, n_faces_per_elem);
 }
 
 // Keep old interface for compatibility (deprecated)
@@ -695,7 +695,7 @@ __global__ void scatterFluxToElementsKernel(
     const int* __restrict__ face_left_local,
     const int* __restrict__ face_right_elem,
     const int* __restrict__ face_right_local,
-    int n_faces, int n_fp_per_face)
+    int n_faces, int n_fp_per_face, int n_faces_per_elem)
 {
     int face = blockIdx.x;
     int fp = threadIdx.x;
@@ -711,7 +711,7 @@ __global__ void scatterFluxToElementsKernel(
     int face_offset = face * n_fp_per_face * N_VARS + fp * N_VARS;
 
     // Element-indexed destination for left element
-    int left_offset = left_elem * 4 * n_fp_per_face * N_VARS
+    int left_offset = left_elem * n_faces_per_elem * n_fp_per_face * N_VARS
                     + left_local * n_fp_per_face * N_VARS
                     + fp * N_VARS;
 
@@ -721,7 +721,7 @@ __global__ void scatterFluxToElementsKernel(
 
     // For interior faces, also scatter to right element (normal points opposite)
     if (right_elem >= 0) {
-        int right_offset = right_elem * 4 * n_fp_per_face * N_VARS
+        int right_offset = right_elem * n_faces_per_elem * n_fp_per_face * N_VARS
                          + right_local * n_fp_per_face * N_VARS
                          + fp * N_VARS;
         // Note: common flux is the same, sign handling done in correction step
@@ -738,7 +738,7 @@ void scatterFluxToElements(
     const int* face_left_local,
     const int* face_right_elem,
     const int* face_right_local,
-    int n_faces, int n_fp_per_face,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
     cudaStream_t stream)
 {
     if (n_faces == 0) return;
@@ -746,7 +746,7 @@ void scatterFluxToElements(
     int blocks = n_faces;
     scatterFluxToElementsKernel<<<blocks, threads, 0, stream>>>(
         F_face, F_elem, face_left_elem, face_left_local,
-        face_right_elem, face_right_local, n_faces, n_fp_per_face);
+        face_right_elem, face_right_local, n_faces, n_fp_per_face, n_faces_per_elem);
 }
 
 __global__ void applyFRCorrectionKernel(
@@ -821,7 +821,7 @@ __global__ void applyBoundaryConditionsKernel(
     const Real* __restrict__ bc_data,
     const Real* __restrict__ normals,
     Real gamma,
-    int n_bc_faces, int n_fp_per_face)
+    int n_bc_faces, int n_fp_per_face, int n_faces_per_elem)
 {
     int bc_face = blockIdx.x;
     int fp = threadIdx.x;
@@ -833,8 +833,8 @@ __global__ void applyBoundaryConditionsKernel(
     int lf = local_face[bc_face];
 
     // Compute index into U_fp: organized as [elem][local_face][flux_pt][var]
-    // U_fp layout: elem * (4 * n_fp * N_VARS) + lf * (n_fp * N_VARS) + fp * N_VARS + var
-    int fp_offset = elem * 4 * n_fp_per_face * N_VARS + lf * n_fp_per_face * N_VARS + fp * N_VARS;
+    // U_fp layout: elem * (n_faces_per_elem * n_fp * N_VARS) + lf * (n_fp * N_VARS) + fp * N_VARS + var
+    int fp_offset = elem * n_faces_per_elem * n_fp_per_face * N_VARS + lf * n_fp_per_face * N_VARS + fp * N_VARS;
 
     BCType type = static_cast<BCType>(bc_type[bc_face]);
 
@@ -993,14 +993,14 @@ void applyBoundaryConditions(Real* U_fp,
                               const Real* bc_data,
                               const Real* normals,
                               Real gamma,
-                              int n_bc_faces, int n_fp_per_face,
+                              int n_bc_faces, int n_fp_per_face, int n_faces_per_elem,
                               cudaStream_t stream)
 {
     if (n_bc_faces == 0) return;
     int threads = n_fp_per_face;
     int blocks = n_bc_faces;
     applyBoundaryConditionsKernel<<<blocks, threads, 0, stream>>>(
-        U_fp, elem_idx, local_face, bc_type, bc_data, normals, gamma, n_bc_faces, n_fp_per_face);
+        U_fp, elem_idx, local_face, bc_type, bc_data, normals, gamma, n_bc_faces, n_fp_per_face, n_faces_per_elem);
 }
 
 // ============================================================================
