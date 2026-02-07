@@ -670,10 +670,10 @@ __global__ void computeFluxDivergenceKernel(
     // Using chain rule: dF/dx = dF/dxi * dxi/dx + dF/deta * deta/dx
     Real div = (dFdxi * dxidx + dFdeta * detadx) + (dGdxi * dxidy + dGdeta * detady);
 
-    // Scale by Jacobian determinant for proper integration
+    // FR formulation: dU/dt = -(1/J) * divergence in reference space
+    // Since we computed physical divergence directly, no J scaling needed
     // NEGATIVE sign: dU/dt = -∇·F
-    Real Jdet = J[elem * n_sp + sp];
-    div_F[elem * n_sp * N_VARS + sp * N_VARS + var] = -div * Jdet;
+    div_F[elem * n_sp * N_VARS + sp * N_VARS + var] = -div;
 }
 
 void computeFluxDivergence(const Real* Fx, const Real* Fy,

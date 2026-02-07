@@ -385,7 +385,7 @@ int main(int argc, char* argv[]) {
     if (mpi.isRoot()) {
         std::cout << "Starting time integration...\n";
         std::cout << "-------------------------------------------\n";
-        std::cout << "  Iter        Time          Residual\n";
+        std::cout << "  Iter        Time            dt          Residual\n";
         std::cout << "-------------------------------------------\n";
     }
 
@@ -419,6 +419,7 @@ int main(int argc, char* argv[]) {
             std::cout << std::setw(6) << iter << "  "
                       << std::scientific << std::setprecision(4)
                       << std::setw(12) << time << "  "
+                      << std::setw(12) << dt << "  "
                       << std::setw(12) << residual << "\n";
 
             std::array<Real, N_VARS> comp_res = {0, 0, 0, 0};  // Would compute properly
