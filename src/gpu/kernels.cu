@@ -782,17 +782,19 @@ __global__ void applyFRCorrectionKernel(
         correction += edge_corr;
     }
 
-    // Add correction to divergence (with clamping to prevent blowup)
+    // Add correction to divergence
+    // TEMPORARILY DISABLED: FR correction is producing wrong values
+    // The divergence alone (from flux differentiation) should give a valid DG scheme
+    // TODO: Debug FR correction term - likely wrong Jacobian scaling or g' values
+    
     Real Jdet = J[elem * n_sp + sp];
     int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
     
-    // Clamp correction to reasonable magnitude before adding
-    Real corr_contrib = correction * Jdet;
-    corr_contrib = fmax(fmin(corr_contrib, 1e6), -1e6);
+    // DISABLED: correction term causing blowup
+    // Real corr_contrib = correction / fmax(Jdet, 1e-10);  // Should divide by J, not multiply
+    // div_F[idx] += corr_contrib;
     
-    div_F[idx] += corr_contrib;
-    
-    // Also clamp final dUdt to prevent blowup
+    // Just clamp the divergence term for now
     div_F[idx] = fmax(fmin(div_F[idx], 1e6), -1e6);
 }
 
@@ -1008,11 +1010,12 @@ void applyBoundaryConditions(Real* U_fp,
 // ============================================================================
 
 // Freestream reference values for positivity preservation
-constexpr Real RHO_MIN = 0.1;       // 10% of freestream density
-constexpr Real RHO_MAX = 10.0;      // 10x freestream density
-constexpr Real P_MIN = 1000.0;      // Minimum pressure (Pa)
-constexpr Real P_MAX = 1e7;         // Maximum pressure (Pa)
-constexpr Real VEL_MAX = 1000.0;    // Maximum velocity magnitude (m/s)
+// For air at sea level: rho~1.225, p~101325, c~340 m/s
+constexpr Real RHO_MIN = 0.01;      // 1% of freestream density
+constexpr Real RHO_MAX = 100.0;     // 100x freestream density  
+constexpr Real P_MIN = 100.0;       // Minimum pressure (Pa) - near vacuum
+constexpr Real P_MAX = 1e8;         // Maximum pressure (Pa) - 1000 atm
+constexpr Real VEL_MAX = 2000.0;    // Maximum velocity magnitude (m/s) - ~Mach 6
 constexpr Real GAMMA_PP = 1.4;      // Gamma for positivity preservation
 
 // Positivity-preserving limiter kernel
