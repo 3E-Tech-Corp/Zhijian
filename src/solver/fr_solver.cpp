@@ -25,12 +25,12 @@ static bool checkNaN(const DeviceArray<Real>& arr, const char* name, size_t size
         maxVal = std::max(maxVal, host[i]);
         sum += host[i];
     }
-    // Debug output - disabled for production
-    // if (debug_call_count < 30) {
-    //     std::cout << "DEBUG: " << name << " min=" << minVal << " max=" << maxVal 
-    //               << " mean=" << sum/size << std::endl << std::flush;
-    //     debug_call_count++;
-    // }
+    // Debug output - enabled for freestream preservation test
+    if (debug_call_count < 15) {
+        std::cout << "DEBUG: " << name << " min=" << minVal << " max=" << maxVal 
+                  << " mean=" << sum/size << std::endl << std::flush;
+        debug_call_count++;
+    }
     return false;
 }
 

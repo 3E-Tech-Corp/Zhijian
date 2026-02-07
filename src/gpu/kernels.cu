@@ -475,14 +475,12 @@ __global__ void computeRiemannFluxWithBCKernel(
         F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
         F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
         
-        // Final safety check - clamp to physically reasonable values
-        // With rho~1, p~1e5, v~300, flux should be O(1e8) at most
+        // Final safety check - only catch NaN/Inf, no clamping
+        // (Clamping destroys freestream preservation)
         for (int v = 0; v < N_VARS; ++v) {
             if (isnan(F[v]) || isinf(F[v])) {
                 F[v] = 0.0;  // Zero flux is safe fallback
             }
-            // Clamp to reasonable magnitude for dimensional SI units
-            F[v] = fmax(fmin(F[v], 1e9), -1e9);
         }
     }
 
