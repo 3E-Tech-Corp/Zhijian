@@ -478,7 +478,9 @@ __global__ void computeRiemannFluxWithBCKernel(
         F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
         F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
         
-        // DEBUG: Print for face 0 only (single compact line to avoid buffer overflow)
+        // Debug: print Riemann flux for face 0 (disabled for production)
+        // Enable with: nvcc -DDEBUG_FREESTREAM=1
+#if defined(DEBUG_FREESTREAM) && DEBUG_FREESTREAM
         if (face == 0 && fp == 0) {
             printf("RIEMANN face0: UL=[%.3g,%.3g,%.3g,%.3g] UR=[%.3g,%.3g,%.3g,%.3g] n=[%.3g,%.3g] F=[%.6g,%.6g,%.6g,%.6g]\n",
                    UL[0], UL[1], UL[2], UL[3],
@@ -486,6 +488,7 @@ __global__ void computeRiemannFluxWithBCKernel(
                    nx, ny,
                    F[0], F[1], F[2], F[3]);
         }
+#endif
         
         // Final safety check - only catch NaN/Inf, no clamping
         // (Clamping destroys freestream preservation)

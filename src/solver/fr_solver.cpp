@@ -7,27 +7,17 @@
 
 namespace zhijian {
 
-// Debug helper to check for NaN in GPU array
-static int debug_call_count = 0;
+// Check for NaN/Inf in GPU array (production version - no verbose output)
 static bool checkNaN(const DeviceArray<Real>& arr, const char* name, size_t size) {
     std::vector<Real> host(size);
     const_cast<DeviceArray<Real>&>(arr).copyToHost(host);
     
-    // Also compute min/max/sum for debugging
-    Real minVal = host[0], maxVal = host[0], sum = 0;
     for (size_t i = 0; i < size; ++i) {
         if (std::isnan(host[i]) || std::isinf(host[i])) {
-            std::cout << "DEBUG: NaN/Inf found in " << name << " at index " << i 
-                      << " (value=" << host[i] << ")" << std::endl << std::flush;
+            std::cerr << "ERROR: NaN/Inf in " << name << " at index " << i << std::endl;
             return true;
         }
-        minVal = std::min(minVal, host[i]);
-        maxVal = std::max(maxVal, host[i]);
-        sum += host[i];
     }
-    // Debug output - disabled (freestream preservation verified)
-    // Uncomment to enable: if (debug_call_count < 15) { ... }
-    (void)name; (void)minVal; (void)maxVal; (void)sum; // suppress unused warnings
     return false;
 }
 
@@ -187,8 +177,10 @@ void FRSolver::allocateGPUMemory() {
         }
         max_row_sum = std::max(max_row_sum, std::abs(row_sum));
     }
-    std::cout << "Diff matrix max row sum: " << max_row_sum 
-              << " (should be ~1e-15 for freestream preservation)" << std::endl;
+    // Debug: Diff matrix row sum check (disable for production)
+    // std::cout << "Diff matrix max row sum: " << max_row_sum 
+    //           << " (should be ~1e-15 for freestream preservation)" << std::endl;
+    (void)max_row_sum;  // suppress unused warning
 
     gpu_data_->diff_xi.resize(diff_xi_flat.size());
     gpu_data_->diff_xi.copyToDevice(diff_xi_flat);
@@ -363,7 +355,9 @@ void FRSolver::computeInviscidFlux_GPU() {
     if (checkNaN(gpu_data_->Fx_sp, "Fx_sp", sol_size)) return;
     if (checkNaN(gpu_data_->Fy_sp, "Fy_sp", sol_size)) return;
     
-    // Debug: check Jacobian/metric terms
+    // Debug: Jacobian/metric check (disabled for production)
+    // Enable by setting DEBUG_FREESTREAM=1
+#if defined(DEBUG_FREESTREAM) && DEBUG_FREESTREAM
     {
         size_t jinv_size = n_elem * n_sp * 4;
         std::vector<Real> h_Jinv(jinv_size);
@@ -386,7 +380,6 @@ void FRSolver::computeInviscidFlux_GPU() {
         std::cout << "Jacobian inverse (metrics) max value: " << max_metric 
                   << " at elem " << max_elem << " sp " << max_sp << std::endl;
         
-        // Print metrics for element with max value
         if (max_elem >= 0) {
             std::cout << "Metrics at elem " << max_elem << ":" << std::endl;
             for (int sp = 0; sp < std::min(4, n_sp); ++sp) {
@@ -397,12 +390,9 @@ void FRSolver::computeInviscidFlux_GPU() {
                           << " deta/dy=" << h_Jinv[idx+3] << std::endl;
             }
         }
-        
-        // For uniform Fx ~ 6e7 and diff row sum ~ 1e-15:
-        // dFdxi ~ 6e7 * 1e-15 = 6e-8
-        // div ~ dFdxi * metric ~ 6e-8 * max_metric
         std::cout << "Expected divergence from roundoff: ~" << 6e-8 * max_metric << std::endl;
     }
+#endif
 
     // Interpolate solution to flux points
     gpu::interpolateToFluxPoints(gpu_data_->U.data(), gpu_data_->U_fp.data(),
