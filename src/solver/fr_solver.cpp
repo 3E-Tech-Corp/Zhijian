@@ -175,12 +175,20 @@ void FRSolver::allocateGPUMemory() {
     int n_sp = ops.numSolutionPoints();
 
     std::vector<Real> diff_xi_flat, diff_eta_flat;
+    
+    // Debug: verify differentiation matrix rows sum to ~0
+    Real max_row_sum = 0;
     for (int i = 0; i < n_sp; ++i) {
+        Real row_sum = 0;
         for (int j = 0; j < n_sp; ++j) {
             diff_xi_flat.push_back(ops.diffXi()[i][j]);
             diff_eta_flat.push_back(ops.diffEta()[i][j]);
+            row_sum += ops.diffXi()[i][j];
         }
+        max_row_sum = std::max(max_row_sum, std::abs(row_sum));
     }
+    std::cout << "Diff matrix max row sum: " << max_row_sum 
+              << " (should be ~1e-15 for freestream preservation)" << std::endl;
 
     gpu_data_->diff_xi.resize(diff_xi_flat.size());
     gpu_data_->diff_xi.copyToDevice(diff_xi_flat);
