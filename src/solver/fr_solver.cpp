@@ -365,6 +365,25 @@ void FRSolver::computeInviscidFlux_GPU() {
     stream_->synchronize();
     size_t fp_size = n_elem * 4 * n_fp * N_VARS;
     if (checkNaN(gpu_data_->U_fp, "U_fp", fp_size)) return;
+    
+    // Debug: print U_fp for first few elements
+    {
+        std::vector<Real> h_U_fp(fp_size);
+        gpu_data_->U_fp.copyToHost(h_U_fp);
+        std::cout << "U_fp layout: [elem][face][fp][var], n_elem=" << n_elem 
+                  << " n_faces_per_elem=4 n_fp=" << n_fp << std::endl;
+        for (int e = 0; e < std::min(2, n_elem); ++e) {
+            for (int f = 0; f < 4; ++f) {
+                std::cout << "  Elem " << e << " face " << f << ": ";
+                for (int fp_idx = 0; fp_idx < n_fp; ++fp_idx) {
+                    int base = ((e * 4 + f) * n_fp + fp_idx) * N_VARS;
+                    std::cout << "[" << h_U_fp[base] << "," << h_U_fp[base+1] 
+                              << "," << h_U_fp[base+2] << "," << h_U_fp[base+3] << "] ";
+                }
+                std::cout << std::endl;
+            }
+        }
+    }
 
     // Build BC data for Riemann flux kernel
     int n_faces = static_cast<int>(mesh_->numFaces());
@@ -432,6 +451,25 @@ void FRSolver::computeInviscidFlux_GPU() {
 
     // Allocate temporary face-indexed array for Riemann flux output
     DeviceArray<Real> F_face(n_faces * n_fp * N_VARS);
+    
+    // Debug: print face connectivity for first few faces
+    {
+        std::vector<int> h_left_elem(n_faces), h_left_local(n_faces);
+        std::vector<int> h_right_elem(n_faces), h_right_local(n_faces);
+        gpu_data_->face_left_elem.copyToHost(h_left_elem);
+        gpu_data_->face_left_local.copyToHost(h_left_local);
+        gpu_data_->face_right_elem.copyToHost(h_right_elem);
+        gpu_data_->face_right_local.copyToHost(h_right_local);
+        
+        std::cout << "Face connectivity (first 10 faces):" << std::endl;
+        for (int f = 0; f < std::min(10, n_faces); ++f) {
+            std::cout << "  Face " << f << ": left_elem=" << h_left_elem[f] 
+                      << " left_local=" << h_left_local[f]
+                      << " right_elem=" << h_right_elem[f] 
+                      << " right_local=" << h_right_local[f]
+                      << " bc_type=" << bc_type_per_face[f] << std::endl;
+        }
+    }
 
     // Debug: check normals
     stream_->synchronize();
@@ -457,6 +495,39 @@ void FRSolver::computeInviscidFlux_GPU() {
     stream_->synchronize();
     size_t face_flux_size = n_faces * n_fp * N_VARS;
     if (checkNaN(F_face, "F_face (Riemann output)", face_flux_size)) return;
+    
+    // Detailed debug: print first few faces to find the problematic ones
+    {
+        std::vector<Real> h_F_face(face_flux_size);
+        const_cast<DeviceArray<Real>&>(F_face).copyToHost(h_F_face);
+        
+        // Find a face with large flux
+        for (int f = 0; f < std::min(5, n_faces); ++f) {
+            std::cout << "Face " << f << " flux: ";
+            for (int fp_idx = 0; fp_idx < n_fp; ++fp_idx) {
+                int base = (f * n_fp + fp_idx) * N_VARS;
+                std::cout << "[" << h_F_face[base] << ", " << h_F_face[base+1] 
+                          << ", " << h_F_face[base+2] << ", " << h_F_face[base+3] << "] ";
+            }
+            std::cout << std::endl;
+        }
+        
+        // Find the face with maximum flux
+        Real maxFlux = 0;
+        int maxFace = -1;
+        for (int f = 0; f < n_faces; ++f) {
+            for (int fp_idx = 0; fp_idx < n_fp; ++fp_idx) {
+                int base = (f * n_fp + fp_idx) * N_VARS;
+                for (int v = 0; v < N_VARS; ++v) {
+                    if (std::abs(h_F_face[base + v]) > maxFlux) {
+                        maxFlux = std::abs(h_F_face[base + v]);
+                        maxFace = f;
+                    }
+                }
+            }
+        }
+        std::cout << "Max flux face: " << maxFace << " with flux magnitude " << maxFlux << std::endl;
+    }
 
     // Scatter face-indexed common flux to element-indexed format
     gpu::scatterFluxToElements(
