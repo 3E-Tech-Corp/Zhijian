@@ -363,25 +363,45 @@ void FRSolver::computeInviscidFlux_GPU() {
     if (checkNaN(gpu_data_->Fx_sp, "Fx_sp", sol_size)) return;
     if (checkNaN(gpu_data_->Fy_sp, "Fy_sp", sol_size)) return;
     
-    // Debug: check if Fx_sp is actually uniform at all solution points
+    // Debug: check Jacobian/metric terms
     {
-        std::vector<Real> h_Fx(sol_size);
-        gpu_data_->Fx_sp.copyToHost(h_Fx);
+        size_t jinv_size = n_elem * n_sp * 4;
+        std::vector<Real> h_Jinv(jinv_size);
+        gpu_data_->Jinv.copyToHost(h_Jinv);
         
-        // Check variance within each element for each variable
-        std::cout << "Fx_sp uniformity check (elem 0):" << std::endl;
-        for (int var = 0; var < N_VARS; ++var) {
-            Real sum = 0, sum2 = 0;
+        Real max_metric = 0;
+        int max_elem = -1, max_sp = -1;
+        for (int e = 0; e < n_elem; ++e) {
             for (int sp = 0; sp < n_sp; ++sp) {
-                Real val = h_Fx[0 * n_sp * N_VARS + sp * N_VARS + var];
-                sum += val;
-                sum2 += val * val;
-                if (sp < 4) std::cout << "  sp" << sp << " var" << var << ": " << val << std::endl;
+                int idx = e * n_sp * 4 + sp * 4;
+                for (int m = 0; m < 4; ++m) {
+                    if (std::abs(h_Jinv[idx + m]) > max_metric) {
+                        max_metric = std::abs(h_Jinv[idx + m]);
+                        max_elem = e;
+                        max_sp = sp;
+                    }
+                }
             }
-            Real mean = sum / n_sp;
-            Real var_val = sum2 / n_sp - mean * mean;
-            std::cout << "  var" << var << ": mean=" << mean << " variance=" << var_val << std::endl;
         }
+        std::cout << "Jacobian inverse (metrics) max value: " << max_metric 
+                  << " at elem " << max_elem << " sp " << max_sp << std::endl;
+        
+        // Print metrics for element with max value
+        if (max_elem >= 0) {
+            std::cout << "Metrics at elem " << max_elem << ":" << std::endl;
+            for (int sp = 0; sp < std::min(4, n_sp); ++sp) {
+                int idx = max_elem * n_sp * 4 + sp * 4;
+                std::cout << "  sp" << sp << ": dxi/dx=" << h_Jinv[idx+0] 
+                          << " dxi/dy=" << h_Jinv[idx+1]
+                          << " deta/dx=" << h_Jinv[idx+2]
+                          << " deta/dy=" << h_Jinv[idx+3] << std::endl;
+            }
+        }
+        
+        // For uniform Fx ~ 6e7 and diff row sum ~ 1e-15:
+        // dFdxi ~ 6e7 * 1e-15 = 6e-8
+        // div ~ dFdxi * metric ~ 6e-8 * max_metric
+        std::cout << "Expected divergence from roundoff: ~" << 6e-8 * max_metric << std::endl;
     }
 
     // Interpolate solution to flux points
