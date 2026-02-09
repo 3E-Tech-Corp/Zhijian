@@ -478,21 +478,13 @@ __global__ void computeRiemannFluxWithBCKernel(
         F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
         F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
         
-        // DEBUG: Print flux for first face AND any face with large flux
-        Real maxF = fmax(fmax(fabs(F[0]), fabs(F[1])), fmax(fabs(F[2]), fabs(F[3])));
-        bool debug_print = (face == 0 && fp == 0) || (maxF > 1e8 && fp == 0);
-        if (debug_print) {
-            printf("DEBUG Riemann face=%d fp=%d: left_elem=%d left_local=%d right_elem=%d\n",
-                   face, fp, left_elem, left_local, right_elem);
-            printf("  UL: rho=%.6g rhou=%.6g rhov=%.6g rhoE=%.6g\n",
-                   UL[0], UL[1], UL[2], UL[3]);
-            printf("  UR: rho=%.6g rhou=%.6g rhov=%.6g rhoE=%.6g\n",
-                   UR[0], UR[1], UR[2], UR[3]);
-            printf("  pL=%.6g pR=%.6g cL=%.6g cR=%.6g smax=%.6g\n", pL, pR, cL, cR, smax);
-            printf("  vnL=%.6g vnR=%.6g HL=%.6g HR=%.6g\n", vnL, vnR, HL, HR);
-            printf("  FL: %.6g %.6g %.6g %.6g\n", FL0, FL1, FL2, FL3);
-            printf("  FR: %.6g %.6g %.6g %.6g\n", FR0, FR1, FR2, FR3);
-            printf("  F_Riemann: %.6g %.6g %.6g %.6g\n", F[0], F[1], F[2], F[3]);
+        // DEBUG: Print for face 0 only (single compact line to avoid buffer overflow)
+        if (face == 0 && fp == 0) {
+            printf("RIEMANN face0: UL=[%.3g,%.3g,%.3g,%.3g] UR=[%.3g,%.3g,%.3g,%.3g] n=[%.3g,%.3g] F=[%.6g,%.6g,%.6g,%.6g]\n",
+                   UL[0], UL[1], UL[2], UL[3],
+                   UR[0], UR[1], UR[2], UR[3],
+                   nx, ny,
+                   F[0], F[1], F[2], F[3]);
         }
         
         // Final safety check - only catch NaN/Inf, no clamping

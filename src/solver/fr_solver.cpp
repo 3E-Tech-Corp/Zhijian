@@ -493,6 +493,7 @@ void FRSolver::computeInviscidFlux_GPU() {
 
     // Debug: check F_face before scatter
     stream_->synchronize();
+    std::cout << "=== After Riemann kernel ===" << std::endl << std::flush;
     size_t face_flux_size = n_faces * n_fp * N_VARS;
     if (checkNaN(F_face, "F_face (Riemann output)", face_flux_size)) return;
     
@@ -501,8 +502,8 @@ void FRSolver::computeInviscidFlux_GPU() {
         std::vector<Real> h_F_face(face_flux_size);
         const_cast<DeviceArray<Real>&>(F_face).copyToHost(h_F_face);
         
-        // Find a face with large flux
-        for (int f = 0; f < std::min(5, n_faces); ++f) {
+        std::cout << "=== F_face values (first 3 faces) ===" << std::endl;
+        for (int f = 0; f < std::min(3, n_faces); ++f) {
             std::cout << "Face " << f << " flux: ";
             for (int fp_idx = 0; fp_idx < n_fp; ++fp_idx) {
                 int base = (f * n_fp + fp_idx) * N_VARS;
@@ -527,6 +528,15 @@ void FRSolver::computeInviscidFlux_GPU() {
             }
         }
         std::cout << "Max flux face: " << maxFace << " with flux magnitude " << maxFlux << std::endl;
+        
+        // Also print expected flux for uniform freestream
+        Real rho = 1.225, rhou = 208.303, rhov = 7.2741, rhoE = 271044;
+        Real u = rhou / rho, v = rhov / rho;
+        Real p = 0.4 * (rhoE - 0.5 * rho * (u*u + v*v));
+        Real H = rhoE/rho + p/rho;
+        std::cout << "Expected flux (nx=1): F=[" << rho*u << ", " << rhou*u + p 
+                  << ", " << rhov*u << ", " << rho*H*u << "]" << std::endl;
+        std::cout << std::flush;
     }
 
     // Scatter face-indexed common flux to element-indexed format
