@@ -404,9 +404,12 @@ __global__ void computeRiemannFluxWithBCKernel(
     State UR;
     if (right_elem >= 0) {
         // Interior face: load from neighboring element
+        // CRITICAL: Flux points are in OPPOSITE order on the neighbor!
+        // When left sees fp=0, right sees fp=(n_fp_per_face-1)
+        int right_fp = n_fp_per_face - 1 - fp;
         int right_offset = right_elem * n_faces_per_elem * n_fp_per_face * N_VARS
                          + right_local * n_fp_per_face * N_VARS
-                         + fp * N_VARS;
+                         + right_fp * N_VARS;
         for (int v = 0; v < N_VARS; ++v) {
             UR[v] = U_fp[right_offset + v];
         }
@@ -433,17 +436,6 @@ __global__ void computeRiemannFluxWithBCKernel(
         Real vL = UL.rhov() / rhoL;
         Real uR = UR.rhou() / rhoR;
         Real vR = UR.rhov() / rhoR;
-        
-        // DEBUG: Print first face, first flux point values
-        if (face == 0 && fp == 0) {
-            printf("DEBUG Riemann face=0 fp=0: left_elem=%d left_local=%d right_elem=%d\n",
-                   left_elem, left_local, right_elem);
-            printf("  UL: rho=%.6g rhou=%.6g rhov=%.6g rhoE=%.6g\n",
-                   UL[0], UL[1], UL[2], UL[3]);
-            printf("  UR: rho=%.6g rhou=%.6g rhov=%.6g rhoE=%.6g\n",
-                   UR[0], UR[1], UR[2], UR[3]);
-            printf("  nx=%.6g ny=%.6g\n", nx, ny);
-        }
         
         // Compute pressure with safety
         Real EL = UL.rhoE() / rhoL;
@@ -486,8 +478,16 @@ __global__ void computeRiemannFluxWithBCKernel(
         F[2] = 0.5 * (FL2 + FR2) - 0.5 * smax * (UR[2] - UL[2]);
         F[3] = 0.5 * (FL3 + FR3) - 0.5 * smax * (UR[3] - UL[3]);
         
-        // DEBUG: Print flux for first face
-        if (face == 0 && fp == 0) {
+        // DEBUG: Print flux for first face AND any face with large flux
+        Real maxF = fmax(fmax(fabs(F[0]), fabs(F[1])), fmax(fabs(F[2]), fabs(F[3])));
+        bool debug_print = (face == 0 && fp == 0) || (maxF > 1e8 && fp == 0);
+        if (debug_print) {
+            printf("DEBUG Riemann face=%d fp=%d: left_elem=%d left_local=%d right_elem=%d\n",
+                   face, fp, left_elem, left_local, right_elem);
+            printf("  UL: rho=%.6g rhou=%.6g rhov=%.6g rhoE=%.6g\n",
+                   UL[0], UL[1], UL[2], UL[3]);
+            printf("  UR: rho=%.6g rhou=%.6g rhov=%.6g rhoE=%.6g\n",
+                   UR[0], UR[1], UR[2], UR[3]);
             printf("  pL=%.6g pR=%.6g cL=%.6g cR=%.6g smax=%.6g\n", pL, pR, cL, cR, smax);
             printf("  vnL=%.6g vnR=%.6g HL=%.6g HR=%.6g\n", vnL, vnR, HL, HR);
             printf("  FL: %.6g %.6g %.6g %.6g\n", FL0, FL1, FL2, FL3);
