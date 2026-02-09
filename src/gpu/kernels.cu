@@ -395,10 +395,10 @@ __global__ void computeRiemannFluxWithBCKernel(
         UL[v] = U_fp[left_offset + v];
     }
 
-    // Load normal (face-indexed)
-    int norm_idx = face * n_fp_per_face + fp;
-    Real nx = normals[norm_idx * 2 + 0];
-    Real ny = normals[norm_idx * 2 + 1];
+    // Load normal (face-indexed) - ONE normal per face, shared by all flux points
+    // (A face is a straight edge, so all flux points have the same outward normal)
+    Real nx = normals[face * 2 + 0];
+    Real ny = normals[face * 2 + 1];
 
     // Get right state
     State UR;
