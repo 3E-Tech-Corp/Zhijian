@@ -362,6 +362,27 @@ void FRSolver::computeInviscidFlux_GPU() {
     stream_->synchronize();
     if (checkNaN(gpu_data_->Fx_sp, "Fx_sp", sol_size)) return;
     if (checkNaN(gpu_data_->Fy_sp, "Fy_sp", sol_size)) return;
+    
+    // Debug: check if Fx_sp is actually uniform at all solution points
+    {
+        std::vector<Real> h_Fx(sol_size);
+        gpu_data_->Fx_sp.copyToHost(h_Fx);
+        
+        // Check variance within each element for each variable
+        std::cout << "Fx_sp uniformity check (elem 0):" << std::endl;
+        for (int var = 0; var < N_VARS; ++var) {
+            Real sum = 0, sum2 = 0;
+            for (int sp = 0; sp < n_sp; ++sp) {
+                Real val = h_Fx[0 * n_sp * N_VARS + sp * N_VARS + var];
+                sum += val;
+                sum2 += val * val;
+                if (sp < 4) std::cout << "  sp" << sp << " var" << var << ": " << val << std::endl;
+            }
+            Real mean = sum / n_sp;
+            Real var_val = sum2 / n_sp - mean * mean;
+            std::cout << "  var" << var << ": mean=" << mean << " variance=" << var_val << std::endl;
+        }
+    }
 
     // Interpolate solution to flux points
     gpu::interpolateToFluxPoints(gpu_data_->U.data(), gpu_data_->U_fp.data(),
