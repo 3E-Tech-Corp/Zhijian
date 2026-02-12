@@ -397,9 +397,10 @@ __global__ void computeFluxDiffForFRKernel(
             Real F_com = F_common[face_idx + v];
             Real diff = F_com - F_int;
             // Only keep F_diff if it's significant relative to F_common
-            // Threshold: 1e-10 relative or 1e-14 absolute
+            // Threshold: 1e-6 relative or 1e-10 absolute
+            // This filters out numerical noise while preserving real flux differences
             Real scale = fmax(fabs(F_com), fabs(F_int));
-            Real tol = fmax(scale * 1e-10, 1e-14);
+            Real tol = fmax(scale * 1e-6, 1e-10);
             F_diff_elem[left_offset + v] = (fabs(diff) > tol) ? diff : 0.0;
         }
     }
@@ -429,8 +430,9 @@ __global__ void computeFluxDiffForFRKernel(
             Real F_com = F_common[face_idx + v];
             Real diff = -F_com + F_int_n;
             // Only keep F_diff if it's significant relative to flux magnitude
+            // Threshold: 1e-6 relative or 1e-10 absolute
             Real scale = fmax(fabs(F_com), fabs(F_int_n));
-            Real tol = fmax(scale * 1e-10, 1e-14);
+            Real tol = fmax(scale * 1e-6, 1e-10);
             F_diff_elem[right_offset + v] = (fabs(diff) > tol) ? diff : 0.0;
         }
     }
