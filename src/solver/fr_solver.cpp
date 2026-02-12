@@ -715,9 +715,13 @@ void FRSolver::exchangeHalo() {
 
 Real FRSolver::computeTimeStep() const {
     // Compute time step based on CFL condition
+    // For DG/FR methods, stable CFL scales as 1/(2p+1)
     Real dt_min = 1e20;
     Real min_h = 1e20;
     Real max_wave_speed = 0.0;
+
+    int p = params_.poly_order;
+    Real cfl_factor = 2.0 * p + 1.0;  // Standard DG/FR scaling
 
     for (Index i = 0; i < mesh_->numElements(); ++i) {
         const Element& elem = mesh_->element(i);
@@ -734,10 +738,8 @@ Real FRSolver::computeTimeStep() const {
             Real wave_speed = gas.maxWaveSpeed(U);
             max_wave_speed = std::max(max_wave_speed, wave_speed);
 
-            // Account for polynomial order
-            // For FR/DG, stability requires more restrictive CFL at high orders
-            // Using (p+1)^2 for more conservative estimate
-            Real dt_local = params_.CFL * h / (wave_speed * (params_.poly_order + 1) * (params_.poly_order + 1));
+            // dt = CFL * h / (wave_speed * (2p+1))
+            Real dt_local = params_.CFL * h / (wave_speed * cfl_factor);
             dt_min = std::min(dt_min, dt_local);
         }
     }
@@ -748,7 +750,8 @@ Real FRSolver::computeTimeStep() const {
         std::cout << "Time step debug:\n"
                   << "  min_h = " << min_h << "\n"
                   << "  max_wave_speed = " << max_wave_speed << "\n"
-                  << "  poly_order = " << params_.poly_order << "\n"
+                  << "  poly_order = " << p << "\n"
+                  << "  CFL factor (2p+1) = " << cfl_factor << "\n"
                   << "  CFL = " << params_.CFL << "\n"
                   << "  dt_min = " << dt_min << "\n";
         first_call = false;
