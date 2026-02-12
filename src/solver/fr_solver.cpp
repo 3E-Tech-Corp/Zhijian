@@ -575,9 +575,11 @@ void FRSolver::computeInviscidFlux_GPU() {
 
     // Step 5: Apply FR correction using F_diff = F_common - F_int
     // This adds correction: -g'·F_diff/J to the divergence
-    gpu::applyFRCorrection(gpu_data_->dUdt.data(), F_diff_elem.data(),
-                            gpu_data_->corr_deriv.data(), gpu_data_->J.data(),
-                            n_elem, n_sp, n_edges, n_fp, stream_->get());
+    // TEMPORARILY DISABLED - testing without FR correction
+    // gpu::applyFRCorrection(gpu_data_->dUdt.data(), F_diff_elem.data(),
+    //                         gpu_data_->corr_deriv.data(), gpu_data_->J.data(),
+    //                         n_elem, n_sp, n_edges, n_fp, stream_->get());
+    (void)F_diff_elem;  // Suppress unused warning
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after FR correction)", sol_size)) return;
     
