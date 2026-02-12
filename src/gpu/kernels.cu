@@ -675,10 +675,17 @@ __global__ void computeRiemannFluxWithBCKernel(
     
     // FORCED DEBUG: print what we're writing for face 0, fp 0
     if (face == 0 && fp == 0) {
-        printf("KERNEL WRITE: face=%d fp=%d out_idx=%d F=[%g,%g,%g,%g]\n",
-               face, fp, out_idx, F[0], F[1], F[2], F[3]);
-        printf("  F_common ptr=%p, writing to index %d-%d\n", 
-               (void*)F_common, out_idx*N_VARS, out_idx*N_VARS+3);
+        printf("KERNEL DEBUG face 0:\n");
+        printf("  UL=[%g, %g, %g, %g]\n", UL[0], UL[1], UL[2], UL[3]);
+        printf("  UR=[%g, %g, %g, %g]\n", UR[0], UR[1], UR[2], UR[3]);
+        printf("  normal n=[%g, %g]\n", nx, ny);
+        printf("  left_elem=%d left_local=%d left_offset=%d\n", left_elem, left_local, left_offset);
+        printf("  vnL=%g vnR=%g pL=%g pR=%g\n", 
+               UL[1]/UL[0]*nx + UL[2]/UL[0]*ny,
+               UR[1]/UR[0]*nx + UR[2]/UR[0]*ny,
+               (gamma-1)*(UL[3] - 0.5*(UL[1]*UL[1]+UL[2]*UL[2])/UL[0]),
+               (gamma-1)*(UR[3] - 0.5*(UR[1]*UR[1]+UR[2]*UR[2])/UR[0]));
+        printf("  F=[%g, %g, %g, %g]\n", F[0], F[1], F[2], F[3]);
     }
 }
 
