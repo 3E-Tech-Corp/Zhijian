@@ -1006,15 +1006,15 @@ __global__ void applyFRCorrectionKernel(
     }
 
     // Add correction to divergence
-    // The correction is in reference space; divide by Jacobian for physical divergence
+    // The correction couples elements through interface fluxes
+    // div_F contains -∇·F (negative physical divergence)
+    // FR correction: subtract g'*(F_common - F_int) scaled by 1/J
     Real Jdet = J[elem * n_sp + sp];
     int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
     
-    // TEMPORARILY DISABLED for debugging - testing if instability is from correction
-    // TODO: The correction needs proper metric transformation, not just 1/J scaling
-    // div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
-    (void)correction;  // Suppress unused warning
-    (void)Jdet;
+    // Apply correction (essential for stability!)
+    // The sign is negative because div_F = -∇·F and correction adds to the flux derivative
+    div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
 }
 
 void applyFRCorrection(Real* div_F,
