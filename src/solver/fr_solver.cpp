@@ -219,6 +219,15 @@ void FRSolver::allocateGPUMemory() {
     }
     gpu_data_->corr_deriv.resize(corr_flat.size());
     gpu_data_->corr_deriv.copyToDevice(corr_flat);
+    
+    // Debug: print correction derivatives
+    std::cout << "Correction derivatives: size=" << corr.size() << "x" << corr[0].size()
+              << " min=" << min_corr << " max=" << max_corr << "\n";
+    std::cout << "  Edge 0 g'(sp): ";
+    for (size_t j = 0; j < std::min(corr[0].size(), size_t(8)); ++j) {
+        std::cout << corr[0][j] << " ";
+    }
+    std::cout << "\n";
 
     // Upload face normals and connectivity
     Index n_faces = mesh_->numFaces();
@@ -583,6 +592,17 @@ void FRSolver::computeInviscidFlux_GPU() {
             corr_max = std::max(corr_max, dudt_host[i]);
         }
         std::cout << "dUdt after FR correction: min=" << corr_min << " max=" << corr_max << "\n";
+        
+        // Debug: check Jacobian values
+        std::vector<Real> j_host(n_elem * n_sp);
+        gpu_data_->J.copyToHost(j_host);
+        Real j_min = 1e30, j_max = -1e30;
+        for (size_t i = 0; i < j_host.size(); ++i) {
+            j_min = std::min(j_min, j_host[i]);
+            j_max = std::max(j_max, j_host[i]);
+        }
+        std::cout << "Jacobian: min=" << j_min << " max=" << j_max << "\n";
+        
         first_corr_check = false;
     }
 }
