@@ -482,6 +482,9 @@ void FRSolver::computeInviscidFlux_GPU() {
     // Allocate temporary arrays
     DeviceArray<Real> F_face(n_faces * n_fp * N_VARS);   // Common (Riemann) flux
     DeviceArray<Real> F_diff_elem(n_elem * n_edges * n_fp * N_VARS);  // Element-indexed F_diff
+    
+    // Initialize F_diff_elem to zero (important! some entries may not be written)
+    cudaMemsetAsync(F_diff_elem.data(), 0, F_diff_elem.size() * sizeof(Real), stream_->get());
 
     // Debug: check normals
     stream_->synchronize();
@@ -544,20 +547,43 @@ void FRSolver::computeInviscidFlux_GPU() {
     // Debug: check F_diff values before correction
     static bool first_correction = true;
     if (first_correction) {
+        // Check F_common (face-indexed)
+        size_t fface_size = n_faces * n_fp * N_VARS;
+        std::vector<Real> fface_host(fface_size);
+        F_face.copyToHost(fface_host);
+        std::cout << "F_common (face 0): ";
+        for (int fp = 0; fp < std::min(n_fp, 2); ++fp) {
+            int idx = 0 * n_fp * N_VARS + fp * N_VARS;
+            std::cout << "[" << fface_host[idx] << "," << fface_host[idx+3] << "] ";
+        }
+        std::cout << "\n";
+
+        // Check F_diff
         size_t fdiff_size = n_elem * n_edges * n_fp * N_VARS;
         std::vector<Real> fdiff_host(fdiff_size);
         F_diff_elem.copyToHost(fdiff_host);
         Real fdiff_min = 1e30, fdiff_max = -1e30;
+        int count_zero = 0, count_nonzero = 0;
         for (size_t i = 0; i < fdiff_size; ++i) {
             fdiff_min = std::min(fdiff_min, fdiff_host[i]);
             fdiff_max = std::max(fdiff_max, fdiff_host[i]);
+            if (fabs(fdiff_host[i]) < 1e-10) count_zero++;
+            else count_nonzero++;
         }
-        std::cout << "F_diff (before correction): min=" << fdiff_min << " max=" << fdiff_max << "\n";
-        // Print first element's F_diff
-        std::cout << "  Elem 0 edge 0: ";
+        std::cout << "F_diff: min=" << fdiff_min << " max=" << fdiff_max 
+                  << " zeros=" << count_zero << " nonzeros=" << count_nonzero << "\n";
+        
+        // Check if F_diff_elem was initialized (look for uninitialized patterns)
+        std::cout << "  Elem 0 edge 0 (var 0): ";
         for (int fp = 0; fp < n_fp; ++fp) {
-            int idx = (0 * n_edges + 0) * n_fp * N_VARS + fp * N_VARS;
-            std::cout << "[" << fdiff_host[idx] << "," << fdiff_host[idx+1] << "] ";
+            int idx = (0 * n_edges + 0) * n_fp * N_VARS + fp * N_VARS + 0;
+            std::cout << fdiff_host[idx] << " ";
+        }
+        std::cout << "\n";
+        std::cout << "  Elem 0 edge 1 (var 0): ";
+        for (int fp = 0; fp < n_fp; ++fp) {
+            int idx = (0 * n_edges + 1) * n_fp * N_VARS + fp * N_VARS + 0;
+            std::cout << fdiff_host[idx] << " ";
         }
         std::cout << "\n";
         first_correction = false;
