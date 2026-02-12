@@ -209,11 +209,22 @@ void FRSolver::allocateGPUMemory() {
     const auto& corr = ops.correctionDeriv();
     size_t corr_size = corr.size() * corr[0].size();
     std::vector<Real> corr_flat(corr_size);
+    Real max_corr = 0.0, min_corr = 0.0;
     for (size_t i = 0; i < corr.size(); ++i) {
         for (size_t j = 0; j < corr[i].size(); ++j) {
             corr_flat[i * corr[i].size() + j] = corr[i][j];
+            max_corr = std::max(max_corr, corr[i][j]);
+            min_corr = std::min(min_corr, corr[i][j]);
         }
     }
+    std::cout << "Correction derivatives: size=" << corr.size() << "x" << corr[0].size() 
+              << " min=" << min_corr << " max=" << max_corr << "\n";
+    // Print first edge's correction derivatives
+    std::cout << "  Edge 0 g'(sp): ";
+    for (size_t j = 0; j < std::min(corr[0].size(), size_t(8)); ++j) {
+        std::cout << corr[0][j] << " ";
+    }
+    std::cout << "\n";
     gpu_data_->corr_deriv.resize(corr_flat.size());
     gpu_data_->corr_deriv.copyToDevice(corr_flat);
 
@@ -529,6 +540,28 @@ void FRSolver::computeInviscidFlux_GPU() {
                                 n_elem, n_sp, stream_->get());
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after divergence)", sol_size)) return;
+
+    // Debug: check F_diff values before correction
+    static bool first_correction = true;
+    if (first_correction) {
+        size_t fdiff_size = n_elem * n_edges * n_fp * N_VARS;
+        std::vector<Real> fdiff_host(fdiff_size);
+        F_diff_elem.copyToHost(fdiff_host);
+        Real fdiff_min = 1e30, fdiff_max = -1e30;
+        for (size_t i = 0; i < fdiff_size; ++i) {
+            fdiff_min = std::min(fdiff_min, fdiff_host[i]);
+            fdiff_max = std::max(fdiff_max, fdiff_host[i]);
+        }
+        std::cout << "F_diff (before correction): min=" << fdiff_min << " max=" << fdiff_max << "\n";
+        // Print first element's F_diff
+        std::cout << "  Elem 0 edge 0: ";
+        for (int fp = 0; fp < n_fp; ++fp) {
+            int idx = (0 * n_edges + 0) * n_fp * N_VARS + fp * N_VARS;
+            std::cout << "[" << fdiff_host[idx] << "," << fdiff_host[idx+1] << "] ";
+        }
+        std::cout << "\n";
+        first_correction = false;
+    }
 
     // Step 5: Apply FR correction using F_diff = F_common - F_int
     // This adds correction: -g'·F_diff/J to the divergence
