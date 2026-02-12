@@ -505,6 +505,21 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_normals.data(),
         params_.gamma, params_.riemann,
         n_faces, n_fp, n_edges, stream_->get());
+    
+    // DEBUG: Check F_face immediately after Riemann solver
+    static bool first_riemann_check = true;
+    if (first_riemann_check) {
+        stream_->synchronize();
+        std::vector<Real> ff_check(n_faces * n_fp * N_VARS);
+        F_face.copyToHost(ff_check);
+        std::cout << "F_face IMMEDIATELY after Riemann (face 0):\n";
+        for (int fp = 0; fp < std::min(n_fp, 4); ++fp) {
+            int idx = 0 * n_fp * N_VARS + fp * N_VARS;
+            std::cout << "  fp" << fp << ": [" << ff_check[idx] << ", " << ff_check[idx+1] 
+                      << ", " << ff_check[idx+2] << ", " << ff_check[idx+3] << "]\n";
+        }
+        first_riemann_check = false;
+    }
 
     // Step 2: Compute F_diff for FR correction
     // This computes (F_common - F_int) for left elements and (-F_common - F_int) for right elements
