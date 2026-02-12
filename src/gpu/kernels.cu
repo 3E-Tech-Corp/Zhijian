@@ -672,6 +672,14 @@ __global__ void computeRiemannFluxWithBCKernel(
     for (int v = 0; v < N_VARS; ++v) {
         F_common[out_idx * N_VARS + v] = F[v];
     }
+    
+    // FORCED DEBUG: print what we're writing for face 0, fp 0
+    if (face == 0 && fp == 0) {
+        printf("KERNEL WRITE: face=%d fp=%d out_idx=%d F=[%g,%g,%g,%g]\n",
+               face, fp, out_idx, F[0], F[1], F[2], F[3]);
+        printf("  F_common ptr=%p, writing to index %d-%d\n", 
+               (void*)F_common, out_idx*N_VARS, out_idx*N_VARS+3);
+    }
 }
 
 void computeRiemannFluxWithBC(
