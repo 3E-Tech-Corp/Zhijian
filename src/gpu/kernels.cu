@@ -391,17 +391,10 @@ __global__ void computeFluxDiffForFRKernel(
         State Fy = gas.fluxY(UL);
 
         // F_diff_left = F_common - F_int_left
-        // Use relative tolerance to avoid amplifying numerical noise
         for (int v = 0; v < N_VARS; ++v) {
             Real F_int = Fx[v] * nx + Fy[v] * ny;
             Real F_com = F_common[face_idx + v];
-            Real diff = F_com - F_int;
-            // Only keep F_diff if it's significant relative to F_common
-            // Threshold: 1e-6 relative or 1e-10 absolute
-            // This filters out numerical noise while preserving real flux differences
-            Real scale = fmax(fabs(F_com), fabs(F_int));
-            Real tol = fmax(scale * 1e-6, 1e-10);
-            F_diff_elem[left_offset + v] = (fabs(diff) > tol) ? diff : 0.0;
+            F_diff_elem[left_offset + v] = F_com - F_int;
         }
     }
 
@@ -424,16 +417,10 @@ __global__ void computeFluxDiffForFRKernel(
         // F_diff_right = (-F_common) - F_int_right
         // where F_int_right = F·(-n) = -(F·n)
         // So: F_diff_right = -F_common - (-(F·n)) = -F_common + F·n
-        // Use relative tolerance to avoid amplifying numerical noise
         for (int v = 0; v < N_VARS; ++v) {
             Real F_int_n = Fx[v] * nx + Fy[v] * ny;  // F·n (using global normal)
             Real F_com = F_common[face_idx + v];
-            Real diff = -F_com + F_int_n;
-            // Only keep F_diff if it's significant relative to flux magnitude
-            // Threshold: 1e-6 relative or 1e-10 absolute
-            Real scale = fmax(fabs(F_com), fabs(F_int_n));
-            Real tol = fmax(scale * 1e-6, 1e-10);
-            F_diff_elem[right_offset + v] = (fabs(diff) > tol) ? diff : 0.0;
+            F_diff_elem[right_offset + v] = -F_com + F_int_n;
         }
     }
 }
@@ -1022,12 +1009,15 @@ __global__ void applyFRCorrectionKernel(
     // Add correction to divergence
     // FR correction couples elements through interface fluxes
     // div_F contains -∇·F (negative physical divergence)
-    // FR correction: subtract g'*(F_common - F_int) scaled by 1/J
-    Real Jdet = J[elem * n_sp + sp];
+    // FR correction: subtract g'*(F_common - F_int)
+    // NOTE: No 1/J scaling! We're working in physical space throughout.
+    // The correction function derivatives g'(ξ) are in reference space,
+    // but F_diff is the physical flux difference, and the element Jacobian
+    // transformation is implicitly accounted for by using physical fluxes.
     int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
     
     // Apply correction (F_diff is already filtered by relative tolerance in computeFluxDiffForFR)
-    div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
+    div_F[idx] -= correction;
 }
 
 void applyFRCorrection(Real* div_F,
