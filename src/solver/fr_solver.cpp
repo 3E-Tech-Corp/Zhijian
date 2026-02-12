@@ -571,6 +571,20 @@ void FRSolver::computeInviscidFlux_GPU() {
                             n_elem, n_sp, n_edges, n_fp, stream_->get());
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after FR correction)", sol_size)) return;
+    
+    // Debug: check dUdt after FR correction
+    static bool first_corr_check = true;
+    if (first_corr_check) {
+        std::vector<Real> dudt_host(sol_size);
+        gpu_data_->dUdt.copyToHost(dudt_host);
+        Real corr_min = 1e30, corr_max = -1e30;
+        for (size_t i = 0; i < sol_size; ++i) {
+            corr_min = std::min(corr_min, dudt_host[i]);
+            corr_max = std::max(corr_max, dudt_host[i]);
+        }
+        std::cout << "dUdt after FR correction: min=" << corr_min << " max=" << corr_max << "\n";
+        first_corr_check = false;
+    }
 }
 
 void FRSolver::computeGradients_GPU() {
