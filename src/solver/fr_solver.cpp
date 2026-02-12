@@ -358,6 +358,19 @@ void FRSolver::computeInviscidFlux_GPU() {
     if (checkNaN(gpu_data_->Fx_sp, "Fx_sp", sol_size)) return;
     if (checkNaN(gpu_data_->Fy_sp, "Fy_sp", sol_size)) return;
     
+    // Debug: check interior flux values
+    static bool first_flux_check = true;
+    if (first_flux_check) {
+        std::vector<Real> fx_host(sol_size), fy_host(sol_size);
+        gpu_data_->Fx_sp.copyToHost(fx_host);
+        gpu_data_->Fy_sp.copyToHost(fy_host);
+        std::cout << "Fx_sp elem 0 sp 0: [" << fx_host[0] << ", " << fx_host[1] 
+                  << ", " << fx_host[2] << ", " << fx_host[3] << "]\n";
+        std::cout << "Fy_sp elem 0 sp 0: [" << fy_host[0] << ", " << fy_host[1] 
+                  << ", " << fy_host[2] << ", " << fy_host[3] << "]\n";
+        first_flux_check = false;
+    }
+    
     // Debug: Jacobian/metric check (disabled for production)
     // Enable by setting DEBUG_FREESTREAM=1
 #if defined(DEBUG_FREESTREAM) && DEBUG_FREESTREAM
@@ -534,6 +547,22 @@ void FRSolver::computeInviscidFlux_GPU() {
                                 n_elem, n_sp, stream_->get());
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after divergence)", sol_size)) return;
+    
+    // Debug: check divergence values
+    static bool first_div_check = true;
+    if (first_div_check) {
+        std::vector<Real> dudt_host(sol_size);
+        gpu_data_->dUdt.copyToHost(dudt_host);
+        Real div_min = 1e30, div_max = -1e30;
+        for (size_t i = 0; i < sol_size; ++i) {
+            div_min = std::min(div_min, dudt_host[i]);
+            div_max = std::max(div_max, dudt_host[i]);
+        }
+        std::cout << "dUdt after divergence: min=" << div_min << " max=" << div_max << "\n";
+        std::cout << "  Elem 0 sp 0: [" << dudt_host[0] << ", " << dudt_host[1] 
+                  << ", " << dudt_host[2] << ", " << dudt_host[3] << "]\n";
+        first_div_check = false;
+    }
 
     // Step 5: Apply FR correction using F_diff = F_common - F_int
     // This adds correction: -g'·F_diff/J to the divergence
