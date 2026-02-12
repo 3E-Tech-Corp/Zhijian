@@ -52,7 +52,7 @@ void Mesh::buildFaces() {
             face.right_elem = -1;
             face.right_face = -1;
             face.is_boundary = true;
-            face.bc_type = BCType::Wall;  // Default, should be set later
+            face.bc_type = BCType::FarField;  // Default to FarField (safer for external boundaries)
             face.bc_tag = 0;
             face.mpi_rank = -1;
         } else if (elems.size() == 2) {
