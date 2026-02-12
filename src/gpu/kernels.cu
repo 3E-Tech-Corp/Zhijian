@@ -391,9 +391,16 @@ __global__ void computeFluxDiffForFRKernel(
         State Fy = gas.fluxY(UL);
 
         // F_diff_left = F_common - F_int_left
+        // Use relative tolerance to avoid amplifying numerical noise
         for (int v = 0; v < N_VARS; ++v) {
             Real F_int = Fx[v] * nx + Fy[v] * ny;
-            F_diff_elem[left_offset + v] = F_common[face_idx + v] - F_int;
+            Real F_com = F_common[face_idx + v];
+            Real diff = F_com - F_int;
+            // Only keep F_diff if it's significant relative to F_common
+            // Threshold: 1e-10 relative or 1e-14 absolute
+            Real scale = fmax(fabs(F_com), fabs(F_int));
+            Real tol = fmax(scale * 1e-10, 1e-14);
+            F_diff_elem[left_offset + v] = (fabs(diff) > tol) ? diff : 0.0;
         }
     }
 
@@ -416,11 +423,15 @@ __global__ void computeFluxDiffForFRKernel(
         // F_diff_right = (-F_common) - F_int_right
         // where F_int_right = F·(-n) = -(F·n)
         // So: F_diff_right = -F_common - (-(F·n)) = -F_common + F·n
+        // Use relative tolerance to avoid amplifying numerical noise
         for (int v = 0; v < N_VARS; ++v) {
             Real F_int_n = Fx[v] * nx + Fy[v] * ny;  // F·n (using global normal)
-            // From right's perspective: F_common_right = -F_common, F_int_right = -F_int_n
-            // F_diff_right = F_common_right - F_int_right = -F_common - (-F_int_n) = -F_common + F_int_n
-            F_diff_elem[right_offset + v] = -F_common[face_idx + v] + F_int_n;
+            Real F_com = F_common[face_idx + v];
+            Real diff = -F_com + F_int_n;
+            // Only keep F_diff if it's significant relative to flux magnitude
+            Real scale = fmax(fabs(F_com), fabs(F_int_n));
+            Real tol = fmax(scale * 1e-10, 1e-14);
+            F_diff_elem[right_offset + v] = (fabs(diff) > tol) ? diff : 0.0;
         }
     }
 }
@@ -1008,18 +1019,13 @@ __global__ void applyFRCorrectionKernel(
 
     // Add correction to divergence
     // FR correction couples elements through interface fluxes
-    // 
-    // TEMPORARILY DISABLED: The 1/J scaling amplifies small numerical errors
-    // in F_diff (which should be 0 for uniform freestream but is ~1e-8 due to
-    // floating-point precision). This causes instability.
-    // 
-    // TODO: Fix by computing F_diff more accurately, or using a relative threshold.
-    // For now, the scheme runs as pure DG (no FR correction).
-    (void)J;
-    (void)correction;
-    (void)elem;
-    (void)n_sp;
-    (void)var;
+    // div_F contains -∇·F (negative physical divergence)
+    // FR correction: subtract g'*(F_common - F_int) scaled by 1/J
+    Real Jdet = J[elem * n_sp + sp];
+    int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
+    
+    // Apply correction (F_diff is already filtered by relative tolerance in computeFluxDiffForFR)
+    div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
 }
 
 void applyFRCorrection(Real* div_F,
