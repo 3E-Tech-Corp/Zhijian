@@ -217,14 +217,6 @@ void FRSolver::allocateGPUMemory() {
             min_corr = std::min(min_corr, corr[i][j]);
         }
     }
-    std::cout << "Correction derivatives: size=" << corr.size() << "x" << corr[0].size() 
-              << " min=" << min_corr << " max=" << max_corr << "\n";
-    // Print first edge's correction derivatives
-    std::cout << "  Edge 0 g'(sp): ";
-    for (size_t j = 0; j < std::min(corr[0].size(), size_t(8)); ++j) {
-        std::cout << corr[0][j] << " ";
-    }
-    std::cout << "\n";
     gpu_data_->corr_deriv.resize(corr_flat.size());
     gpu_data_->corr_deriv.copyToDevice(corr_flat);
 
@@ -505,22 +497,6 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_normals.data(),
         params_.gamma, params_.riemann,
         n_faces, n_fp, n_edges, stream_->get());
-    
-    // DEBUG: Check F_face immediately after Riemann solver
-    static bool first_riemann_check = true;
-    if (first_riemann_check) {
-        stream_->synchronize();
-        std::vector<Real> ff_check(n_faces * n_fp * N_VARS);
-        F_face.copyToHost(ff_check);
-        std::cout << "F_face IMMEDIATELY after Riemann (face 0):\n";
-        for (int fp = 0; fp < std::min(n_fp, 4); ++fp) {
-            int idx = 0 * n_fp * N_VARS + fp * N_VARS;
-            std::cout << "  fp" << fp << ": [" << ff_check[idx] << ", " << ff_check[idx+1] 
-                      << ", " << ff_check[idx+2] << ", " << ff_check[idx+3] << "]\n";
-        }
-        first_riemann_check = false;
-    }
-
     // Step 2: Compute F_diff for FR correction
     // This computes (F_common - F_int) for left elements and (-F_common - F_int) for right elements
     // properly handling the normal direction for each element
@@ -558,51 +534,6 @@ void FRSolver::computeInviscidFlux_GPU() {
                                 n_elem, n_sp, stream_->get());
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after divergence)", sol_size)) return;
-
-    // Debug: check F_diff values before correction
-    static bool first_correction = true;
-    if (first_correction) {
-        // Check F_common (face-indexed)
-        size_t fface_size = n_faces * n_fp * N_VARS;
-        std::vector<Real> fface_host(fface_size);
-        F_face.copyToHost(fface_host);
-        std::cout << "F_common (face 0): ";
-        for (int fp = 0; fp < std::min(n_fp, 2); ++fp) {
-            int idx = 0 * n_fp * N_VARS + fp * N_VARS;
-            std::cout << "[" << fface_host[idx] << "," << fface_host[idx+3] << "] ";
-        }
-        std::cout << "\n";
-
-        // Check F_diff
-        size_t fdiff_size = n_elem * n_edges * n_fp * N_VARS;
-        std::vector<Real> fdiff_host(fdiff_size);
-        F_diff_elem.copyToHost(fdiff_host);
-        Real fdiff_min = 1e30, fdiff_max = -1e30;
-        int count_zero = 0, count_nonzero = 0;
-        for (size_t i = 0; i < fdiff_size; ++i) {
-            fdiff_min = std::min(fdiff_min, fdiff_host[i]);
-            fdiff_max = std::max(fdiff_max, fdiff_host[i]);
-            if (fabs(fdiff_host[i]) < 1e-10) count_zero++;
-            else count_nonzero++;
-        }
-        std::cout << "F_diff: min=" << fdiff_min << " max=" << fdiff_max 
-                  << " zeros=" << count_zero << " nonzeros=" << count_nonzero << "\n";
-        
-        // Check if F_diff_elem was initialized (look for uninitialized patterns)
-        std::cout << "  Elem 0 edge 0 (var 0): ";
-        for (int fp = 0; fp < n_fp; ++fp) {
-            int idx = (0 * n_edges + 0) * n_fp * N_VARS + fp * N_VARS + 0;
-            std::cout << fdiff_host[idx] << " ";
-        }
-        std::cout << "\n";
-        std::cout << "  Elem 0 edge 1 (var 0): ";
-        for (int fp = 0; fp < n_fp; ++fp) {
-            int idx = (0 * n_edges + 1) * n_fp * N_VARS + fp * N_VARS + 0;
-            std::cout << fdiff_host[idx] << " ";
-        }
-        std::cout << "\n";
-        first_correction = false;
-    }
 
     // Step 5: Apply FR correction using F_diff = F_common - F_int
     // This adds correction: -g'·F_diff/J to the divergence
@@ -816,19 +747,6 @@ Real FRSolver::computeTimeStep() const {
             Real dt_local = params_.CFL * h / (wave_speed * cfl_factor);
             dt_min = std::min(dt_min, dt_local);
         }
-    }
-
-    // Debug output (first call only)
-    static bool first_call = true;
-    if (first_call) {
-        std::cout << "Time step debug:\n"
-                  << "  min_h = " << min_h << "\n"
-                  << "  max_wave_speed = " << max_wave_speed << "\n"
-                  << "  poly_order = " << p << "\n"
-                  << "  CFL factor (2p+1) = " << cfl_factor << "\n"
-                  << "  CFL = " << params_.CFL << "\n"
-                  << "  dt_min = " << dt_min << "\n";
-        first_call = false;
     }
 
     return dt_min;

@@ -581,40 +581,17 @@ __global__ void computeRiemannFluxWithBCKernel(
         for (int v = 0; v < N_VARS; ++v) {
             UR[v] = U_fp[right_offset + v];
         }
-        
-        // Debug: show right element info
-        if (face == 0 && fp == 0) {
-            printf("RIGHT ELEM DEBUG:\n");
-            printf("  right_elem=%d right_local=%d right_fp=%d\n", right_elem, right_local, right_fp);
-            printf("  right_offset=%d\n", right_offset);
-            printf("  UR from U_fp: [%g, %g, %g, %g]\n", UR[0], UR[1], UR[2], UR[3]);
-        }
     } else {
         // Boundary face: compute ghost state
         BCType bct = static_cast<BCType>(bc_type[face]);
         int bc_idx = bc_face_map[face];  // Index into bc_data
         
-        // Debug: show BC info for face 0
-        if (face == 0 && fp == 0) {
-            printf("BOUNDARY DEBUG face 0:\n");
-            printf("  right_elem=%d (boundary)\n", right_elem);
-            printf("  bc_type[0]=%d (0=Interior,1=Wall,2=SlipWall,3=Symmetry,4=FarField)\n", bc_type[face]);
-            printf("  bc_face_map[0]=%d\n", bc_idx);
-        }
-        
-        // Safety check: if bc_idx is invalid, just reflect (slip wall)
+        // Safety check: if bc_idx is invalid, fall back to slip wall
         if (bc_idx < 0) {
-            if (face == 0 && fp == 0) {
-                printf("  WARNING: bc_idx<0, falling back to SlipWall!\n");
-            }
             bct = BCType::SlipWall;
             bc_idx = 0;
         }
         UR = computeGhostState(UL, nx, ny, bct, bc_data, bc_idx, gamma);
-        
-        if (face == 0 && fp == 0) {
-            printf("  Ghost UR=[%g, %g, %g, %g]\n", UR[0], UR[1], UR[2], UR[3]);
-        }
     }
 
     // Compute Riemann flux with inline safety guards
@@ -695,21 +672,6 @@ __global__ void computeRiemannFluxWithBCKernel(
     int out_idx = face * n_fp_per_face + fp;
     for (int v = 0; v < N_VARS; ++v) {
         F_common[out_idx * N_VARS + v] = F[v];
-    }
-    
-    // FORCED DEBUG: print what we're writing for face 0, fp 0
-    if (face == 0 && fp == 0) {
-        printf("KERNEL DEBUG face 0:\n");
-        printf("  UL=[%g, %g, %g, %g]\n", UL[0], UL[1], UL[2], UL[3]);
-        printf("  UR=[%g, %g, %g, %g]\n", UR[0], UR[1], UR[2], UR[3]);
-        printf("  normal n=[%g, %g]\n", nx, ny);
-        printf("  left_elem=%d left_local=%d left_offset=%d\n", left_elem, left_local, left_offset);
-        printf("  vnL=%g vnR=%g pL=%g pR=%g\n", 
-               UL[1]/UL[0]*nx + UL[2]/UL[0]*ny,
-               UR[1]/UR[0]*nx + UR[2]/UR[0]*ny,
-               (gamma-1)*(UL[3] - 0.5*(UL[1]*UL[1]+UL[2]*UL[2])/UL[0]),
-               (gamma-1)*(UR[3] - 0.5*(UR[1]*UR[1]+UR[2]*UR[2])/UR[0]));
-        printf("  F=[%g, %g, %g, %g]\n", F[0], F[1], F[2], F[3]);
     }
 }
 

@@ -705,9 +705,6 @@ void GmshReader::mapBoundaryConditions(
         }
 
         info.type = inferBCType(info.name);
-        
-        std::cout << "BC Setup: tag=" << tag << " name='" << info.name 
-                  << "' -> type=" << static_cast<int>(info.type) << std::endl;
 
         // Zero-init BC-specific data
         info.p_total = 0;
@@ -737,9 +734,6 @@ void GmshReader::mapBoundaryConditions(
 // ============================================================================
 
 void GmshReader::applyBoundaryTags(Mesh& mesh) {
-    std::cout << "applyBoundaryTags: boundary_edge_tags_ has " 
-              << boundary_edge_tags_.size() << " entries" << std::endl;
-    int applied = 0, not_found = 0;
     for (Index i = 0; i < mesh.numFaces(); ++i) {
         Face& face = mesh.face(i);
         if (!face.is_boundary) continue;
@@ -758,31 +752,9 @@ void GmshReader::applyBoundaryTags(Mesh& mesh) {
             face.bc_tag = it->second;
             if (mesh.hasBCInfo(it->second)) {
                 face.bc_type = mesh.getBCInfo(it->second).type;
-                applied++;
-                if (applied <= 3) {
-                    std::cout << "  Face " << i << ": applied BC type " 
-                              << static_cast<int>(face.bc_type) << " from tag " << it->second << std::endl;
-                }
-            }
-        } else {
-            not_found++;
-            if (not_found <= 5) {
-                std::cout << "  Face " << i << ": boundary edge (" << v0 << "," << v1 
-                          << ") not found in boundary_edge_tags_" << std::endl;
-                // Debug: show what's in boundary_edge_tags_
-                if (not_found == 1) {
-                    std::cout << "  First few boundary_edge_tags_ entries: ";
-                    int shown = 0;
-                    for (const auto& kv : boundary_edge_tags_) {
-                        if (shown++ >= 5) break;
-                        std::cout << "(" << kv.first.first << "," << kv.first.second << ") ";
-                    }
-                    std::cout << std::endl;
-                }
             }
         }
     }
-    std::cout << "applyBoundaryTags: applied=" << applied << " not_found=" << not_found << std::endl;
 }
 
 }  // namespace zhijian
