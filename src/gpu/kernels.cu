@@ -193,7 +193,70 @@ void computeInviscidFluxSP(const Real* U, Real* Fx, Real* Fy,
         U, Fx, Fy, gamma, n_elem, n_sp);
 }
 
-// Compute normal flux F·n at flux points (element-indexed)
+// Compute interior normal flux F·n at flux points (face-indexed)
+// This computes F(U_L)·n for left element only - used to get F_int for FR correction
+__global__ void computeInteriorFluxAtFaceKernel(
+    const Real* __restrict__ U_fp,           // Element-indexed flux point states
+    Real* __restrict__ F_int,                // Face-indexed interior flux (output)
+    const int* __restrict__ face_left_elem,
+    const int* __restrict__ face_left_local,
+    const Real* __restrict__ face_normals,
+    Real gamma,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem)
+{
+    int face = blockIdx.x;
+    int fp = threadIdx.x;
+
+    if (face >= n_faces || fp >= n_fp_per_face) return;
+
+    int left_elem = face_left_elem[face];
+    int left_local = face_left_local[face];
+
+    // Get normal (points from left to right)
+    Real nx = face_normals[face * 2 + 0];
+    Real ny = face_normals[face * 2 + 1];
+
+    // Load left state from U_fp
+    int left_offset = left_elem * n_faces_per_elem * n_fp_per_face * N_VARS
+                    + left_local * n_fp_per_face * N_VARS
+                    + fp * N_VARS;
+
+    State UL;
+    for (int v = 0; v < N_VARS; ++v) {
+        UL[v] = U_fp[left_offset + v];
+    }
+
+    // Compute flux from interior state
+    IdealGas gas(gamma);
+    State Fx = gas.fluxX(UL);
+    State Fy = gas.fluxY(UL);
+
+    // Normal flux: F·n = Fx*nx + Fy*ny
+    int out_idx = face * n_fp_per_face * N_VARS + fp * N_VARS;
+    for (int v = 0; v < N_VARS; ++v) {
+        F_int[out_idx + v] = Fx[v] * nx + Fy[v] * ny;
+    }
+}
+
+void computeInteriorFluxAtFace(
+    const Real* U_fp,
+    Real* F_int,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const Real* face_normals,
+    Real gamma,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
+    cudaStream_t stream)
+{
+    if (n_faces == 0) return;
+    int threads = n_fp_per_face;
+    int blocks = n_faces;
+    computeInteriorFluxAtFaceKernel<<<blocks, threads, 0, stream>>>(
+        U_fp, F_int, face_left_elem, face_left_local, face_normals,
+        gamma, n_faces, n_fp_per_face, n_faces_per_elem);
+}
+
+// Legacy kernel - element-indexed version (kept for compatibility)
 __global__ void computeInviscidFluxAtFPKernel(
     const Real* __restrict__ U_fp,       // Solution at flux points [elem][face][fp][var]
     Real* __restrict__ F_fp,             // Normal flux at flux points (output)
@@ -220,16 +283,7 @@ __global__ void computeInviscidFluxAtFPKernel(
         U[v] = U_fp[fp_idx + v];
     }
 
-    // Get face normal - need to find the global face for this elem/edge
-    // For now, use a simplified approach: compute F·n using element-local normal
-    // This is approximate but should work for most cases
-    IdealGas gas(gamma);
-    State Fx = gas.fluxX(U);
-    State Fy = gas.fluxY(U);
-
-    // For element-local normals, we use a simplified approach
-    // In a full implementation, we'd look up the actual face normal
-    // For quads with edges 0,1,2,3 corresponding to bottom, right, top, left:
+    // Use reference element normals (for legacy compatibility)
     Real nx, ny;
     switch (edge) {
         case 0: nx = 0.0; ny = -1.0; break;  // bottom
@@ -238,6 +292,10 @@ __global__ void computeInviscidFluxAtFPKernel(
         case 3: nx = -1.0; ny = 0.0; break;  // left
         default: nx = 1.0; ny = 0.0; break;
     }
+
+    IdealGas gas(gamma);
+    State Fx = gas.fluxX(U);
+    State Fy = gas.fluxY(U);
 
     // Normal flux: F·n = Fx*nx + Fy*ny
     for (int v = 0; v < N_VARS; ++v) {
@@ -260,7 +318,7 @@ void computeInviscidFluxAtFP(const Real* U_fp, Real* F_fp,
         gamma, n_elem, n_edges, n_fp_per_edge);
 }
 
-// Compute flux difference: F_diff = F_common - F_int
+// Compute flux difference: F_diff = F_common - F_int (simple version)
 __global__ void computeFluxDifferenceKernel(
     const Real* __restrict__ F_common,
     const Real* __restrict__ F_int,
@@ -279,6 +337,116 @@ void computeFluxDifference(const Real* F_common, const Real* F_int,
     int blocks = (n + threads - 1) / threads;
     computeFluxDifferenceKernel<<<blocks, threads, 0, stream>>>(
         F_common, F_int, F_diff, n);
+}
+
+// Compute F_diff for FR correction, properly handling left and right elements
+// F_diff_elem is element-indexed: [elem][local_face][fp][var]
+// For left element: F_diff = F_common - F_int_left
+// For right element: F_diff = -F_common - F_int_right (normal is flipped)
+__global__ void computeFluxDiffForFRKernel(
+    const Real* __restrict__ U_fp,           // Element-indexed U at flux points
+    const Real* __restrict__ F_common,       // Face-indexed common flux
+    Real* __restrict__ F_diff_elem,          // Element-indexed F_diff (output)
+    const int* __restrict__ face_left_elem,
+    const int* __restrict__ face_left_local,
+    const int* __restrict__ face_right_elem,
+    const int* __restrict__ face_right_local,
+    const Real* __restrict__ face_normals,
+    Real gamma,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem)
+{
+    int face = blockIdx.x;
+    int fp = threadIdx.x;
+
+    if (face >= n_faces || fp >= n_fp_per_face) return;
+
+    int left_elem = face_left_elem[face];
+    int left_local = face_left_local[face];
+    int right_elem = face_right_elem[face];
+    int right_local = face_right_local[face];
+
+    // Get face normal (points from left to right)
+    Real nx = face_normals[face * 2 + 0];
+    Real ny = face_normals[face * 2 + 1];
+
+    // Face-indexed common flux
+    int face_idx = face * n_fp_per_face * N_VARS + fp * N_VARS;
+
+    IdealGas gas(gamma);
+
+    // --- Left element ---
+    {
+        int left_offset = left_elem * n_faces_per_elem * n_fp_per_face * N_VARS
+                        + left_local * n_fp_per_face * N_VARS
+                        + fp * N_VARS;
+
+        // Load left state
+        State UL;
+        for (int v = 0; v < N_VARS; ++v) {
+            UL[v] = U_fp[left_offset + v];
+        }
+
+        // Interior flux: F·n (outward from left = same as face normal)
+        State Fx = gas.fluxX(UL);
+        State Fy = gas.fluxY(UL);
+
+        // F_diff_left = F_common - F_int_left
+        for (int v = 0; v < N_VARS; ++v) {
+            Real F_int = Fx[v] * nx + Fy[v] * ny;
+            F_diff_elem[left_offset + v] = F_common[face_idx + v] - F_int;
+        }
+    }
+
+    // --- Right element (if interior face) ---
+    if (right_elem >= 0) {
+        int right_offset = right_elem * n_faces_per_elem * n_fp_per_face * N_VARS
+                         + right_local * n_fp_per_face * N_VARS
+                         + fp * N_VARS;
+
+        // Load right state
+        State UR;
+        for (int v = 0; v < N_VARS; ++v) {
+            UR[v] = U_fp[right_offset + v];
+        }
+
+        // Interior flux: F·(-n) (outward from right = opposite of face normal)
+        State Fx = gas.fluxX(UR);
+        State Fy = gas.fluxY(UR);
+
+        // F_diff_right = (-F_common) - F_int_right
+        // where F_int_right = F·(-n) = -(F·n)
+        // So: F_diff_right = -F_common - (-(F·n)) = -F_common + F·n
+        for (int v = 0; v < N_VARS; ++v) {
+            Real F_int_n = Fx[v] * nx + Fy[v] * ny;  // F·n (using global normal)
+            // From right's perspective: F_common_right = -F_common, F_int_right = -F_int_n
+            // F_diff_right = F_common_right - F_int_right = -F_common - (-F_int_n) = -F_common + F_int_n
+            F_diff_elem[right_offset + v] = -F_common[face_idx + v] + F_int_n;
+        }
+    }
+}
+
+void computeFluxDiffForFR(
+    const Real* U_fp,
+    const Real* F_common,
+    Real* F_diff_elem,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const int* face_right_elem,
+    const int* face_right_local,
+    const Real* face_normals,
+    Real gamma,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
+    cudaStream_t stream)
+{
+    if (n_faces == 0) return;
+    int threads = n_fp_per_face;
+    int blocks = n_faces;
+    computeFluxDiffForFRKernel<<<blocks, threads, 0, stream>>>(
+        U_fp, F_common, F_diff_elem,
+        face_left_elem, face_left_local,
+        face_right_elem, face_right_local,
+        face_normals, gamma,
+        n_faces, n_fp_per_face, n_faces_per_elem);
 }
 
 // Helper: compute ghost state for boundary face
@@ -764,9 +932,21 @@ void scatterFluxToElements(
         face_right_elem, face_right_local, n_faces, n_fp_per_face, n_faces_per_elem);
 }
 
+// Apply FR correction at solution points
+// For tensor-product quads: solution points are arranged in n_1d x n_1d grid
+// Each edge has n_1d flux points collocated with the solution points along that edge
+// 
+// Edge layout for quad:
+//   edge 0: bottom (η=-1), flux points vary in ξ
+//   edge 1: right  (ξ=+1), flux points vary in η
+//   edge 2: top    (η=+1), flux points vary in ξ
+//   edge 3: left   (ξ=-1), flux points vary in η
+//
+// F_diff is element-indexed: [elem][edge][fp][var]
+// corr_deriv is [edge][sp], gives g'_edge at solution point sp
 __global__ void applyFRCorrectionKernel(
     Real* __restrict__ div_F,
-    const Real* __restrict__ F_diff,
+    const Real* __restrict__ F_diff,     // Element-indexed flux difference
     const Real* __restrict__ corr_deriv,
     const Real* __restrict__ J,
     int n_elem, int n_sp, int n_edges, int n_fp_per_edge)
@@ -777,38 +957,63 @@ __global__ void applyFRCorrectionKernel(
 
     if (elem >= n_elem || sp >= n_sp || var >= N_VARS) return;
 
+    // For tensor-product elements: n_sp = n_1d^2, n_fp_per_edge = n_1d
+    int n_1d = n_fp_per_edge;  // Assuming square elements
+    
+    // Get (i,j) indices for this solution point
+    // Assuming row-major: sp = i * n_1d + j where i is η index, j is ξ index
+    int sp_i = sp / n_1d;  // η index (row)
+    int sp_j = sp % n_1d;  // ξ index (column)
+
     Real correction = 0.0;
 
-    // Sum contributions from all edges
-    for (int edge = 0; edge < n_edges; ++edge) {
-        Real edge_corr = 0.0;
-        for (int fp = 0; fp < n_fp_per_edge; ++fp) {
-            int fp_idx = (elem * n_edges + edge) * n_fp_per_edge + fp;
-            Real Fdiff = F_diff[fp_idx * N_VARS + var];
+    // Edge 0 (bottom, η=-1): correction in η direction
+    // Flux point j on edge 0 affects solution points (i, j) for all i
+    // This solution point (sp_i, sp_j) is affected by flux point sp_j
+    {
+        int fp_idx = (elem * n_edges + 0) * n_fp_per_edge + sp_j;
+        Real Fdiff = F_diff[fp_idx * N_VARS + var];
+        Real g_deriv = corr_deriv[0 * n_sp + sp];  // g'_bottom at this sp
+        correction += Fdiff * g_deriv;
+    }
 
-            // Correction function derivative at this solution point for this edge/fp
-            // Simplified: use single correction value per edge
-            Real g_deriv = corr_deriv[edge * n_sp + sp];
+    // Edge 1 (right, ξ=+1): correction in ξ direction
+    // Flux point i on edge 1 affects solution points (i, j) for all j
+    // This solution point (sp_i, sp_j) is affected by flux point sp_i
+    {
+        int fp_idx = (elem * n_edges + 1) * n_fp_per_edge + sp_i;
+        Real Fdiff = F_diff[fp_idx * N_VARS + var];
+        Real g_deriv = corr_deriv[1 * n_sp + sp];  // g'_right at this sp
+        correction += Fdiff * g_deriv;
+    }
 
-            edge_corr += Fdiff * g_deriv / n_fp_per_edge;  // Average over flux points
-        }
-        correction += edge_corr;
+    // Edge 2 (top, η=+1): correction in η direction
+    // Flux point j on edge 2 affects solution points (i, j) for all i
+    {
+        int fp_idx = (elem * n_edges + 2) * n_fp_per_edge + sp_j;
+        Real Fdiff = F_diff[fp_idx * N_VARS + var];
+        Real g_deriv = corr_deriv[2 * n_sp + sp];  // g'_top at this sp
+        correction += Fdiff * g_deriv;
+    }
+
+    // Edge 3 (left, ξ=-1): correction in ξ direction
+    // Flux point i on edge 3 affects solution points (i, j) for all j
+    {
+        int fp_idx = (elem * n_edges + 3) * n_fp_per_edge + sp_i;
+        Real Fdiff = F_diff[fp_idx * N_VARS + var];
+        Real g_deriv = corr_deriv[3 * n_sp + sp];  // g'_left at this sp
+        correction += Fdiff * g_deriv;
     }
 
     // Add correction to divergence
-    // TEMPORARILY DISABLED: FR correction is producing wrong values
-    // The divergence alone (from flux differentiation) should give a valid DG scheme
-    // TODO: Debug FR correction term - likely wrong Jacobian scaling or g' values
-    
+    // The correction is in reference space; divide by Jacobian for physical divergence
     Real Jdet = J[elem * n_sp + sp];
     int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
     
-    // DISABLED: correction term causing blowup
-    // Real corr_contrib = correction / fmax(Jdet, 1e-10);  // Should divide by J, not multiply
-    // div_F[idx] += corr_contrib;
-    
-    // Just clamp the divergence term for now
-    div_F[idx] = fmax(fmin(div_F[idx], 1e6), -1e6);
+    // Note: div_F already contains -∇·F (negative divergence)
+    // FR adds: -g' * (F_common - F_int) / J
+    // The negative sign is because dU/dt = -∇·F (conservation form)
+    div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
 }
 
 void applyFRCorrection(Real* div_F,

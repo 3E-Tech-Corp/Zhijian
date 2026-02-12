@@ -468,17 +468,16 @@ void FRSolver::computeInviscidFlux_GPU() {
         d_bc_data.copyToDevice(bc_data);
     }
 
-    // Allocate temporary face-indexed array for Riemann flux output
-    DeviceArray<Real> F_face(n_faces * n_fp * N_VARS);
-    
-    // Debug: face connectivity print disabled (connectivity is correct)
+    // Allocate temporary arrays
+    DeviceArray<Real> F_face(n_faces * n_fp * N_VARS);   // Common (Riemann) flux
+    DeviceArray<Real> F_diff_elem(n_elem * n_edges * n_fp * N_VARS);  // Element-indexed F_diff
 
     // Debug: check normals
     stream_->synchronize();
-    size_t norm_size = n_faces * n_fp * 2;
+    size_t norm_size = n_faces * 2;  // One normal per face
     if (checkNaN(gpu_data_->face_normals, "face_normals", norm_size)) return;
 
-    // Compute Riemann flux with integrated BC handling (outputs face-indexed)
+    // Step 1: Compute Riemann (common) flux with BC handling
     gpu::computeRiemannFluxWithBC(
         gpu_data_->U_fp.data(),
         F_face.data(),
@@ -493,12 +492,22 @@ void FRSolver::computeInviscidFlux_GPU() {
         params_.gamma, params_.riemann,
         n_faces, n_fp, n_edges, stream_->get());
 
-    // Debug: check F_face before scatter (verbose output disabled - flux is now correct)
-    stream_->synchronize();
-    size_t face_flux_size = n_faces * n_fp * N_VARS;
-    // Skip checkNaN for now since flux is correct
+    // Step 2: Compute F_diff for FR correction
+    // This computes (F_common - F_int) for left elements and (-F_common - F_int) for right elements
+    // properly handling the normal direction for each element
+    gpu::computeFluxDiffForFR(
+        gpu_data_->U_fp.data(),
+        F_face.data(),
+        F_diff_elem.data(),
+        gpu_data_->face_left_elem.data(),
+        gpu_data_->face_left_local.data(),
+        gpu_data_->face_right_elem.data(),
+        gpu_data_->face_right_local.data(),
+        gpu_data_->face_normals.data(),
+        params_.gamma,
+        n_faces, n_fp, n_edges, stream_->get());
 
-    // Scatter face-indexed common flux to element-indexed format
+    // Step 3: Scatter F_common to element-indexed format (for potential future use)
     gpu::scatterFluxToElements(
         F_face.data(),
         gpu_data_->F_fp.data(),
@@ -508,11 +517,10 @@ void FRSolver::computeInviscidFlux_GPU() {
         gpu_data_->face_right_local.data(),
         n_faces, n_fp, n_edges, stream_->get());
 
-    // Check Riemann flux result
     stream_->synchronize();
     if (checkNaN(gpu_data_->F_fp, "F_fp (after scatter)", fp_size)) return;
 
-    // Compute flux divergence at solution points
+    // Step 4: Compute flux divergence at solution points (from interior flux)
     // dUdt = -∇·F (negative divergence of flux)
     gpu::computeFluxDivergence(gpu_data_->Fx_sp.data(), gpu_data_->Fy_sp.data(),
                                 gpu_data_->dUdt.data(),
@@ -522,12 +530,11 @@ void FRSolver::computeInviscidFlux_GPU() {
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after divergence)", sol_size)) return;
 
-    // Apply FR correction using common flux
-    // Note: For a full FR implementation, this should use (F_common - F_interior)
-    // For now, we use F_common directly which is a simplification
-    gpu::applyFRCorrection(gpu_data_->dUdt.data(), gpu_data_->F_fp.data(),
+    // Step 5: Apply FR correction using F_diff = F_common - F_int
+    // This adds correction: -g'·F_diff/J to the divergence
+    gpu::applyFRCorrection(gpu_data_->dUdt.data(), F_diff_elem.data(),
                             gpu_data_->corr_deriv.data(), gpu_data_->J.data(),
-                            n_elem, n_sp, 4, n_fp, stream_->get());
+                            n_elem, n_sp, n_edges, n_fp, stream_->get());
     stream_->synchronize();
     if (checkNaN(gpu_data_->dUdt, "dUdt (after FR correction)", sol_size)) return;
 }

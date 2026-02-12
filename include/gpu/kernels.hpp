@@ -97,7 +97,19 @@ void computeViscousFluxSP(const Real* U,
                            int n_elem, int n_sp,
                            cudaStream_t stream = 0);
 
-// Compute interior normal flux at flux points (element-indexed)
+// Compute interior normal flux at flux points (face-indexed)
+// Uses left element state only; used for FR correction
+void computeInteriorFluxAtFace(
+    const Real* U_fp,
+    Real* F_int,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const Real* face_normals,
+    Real gamma,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
+    cudaStream_t stream = 0);
+
+// Compute interior normal flux at flux points (element-indexed, legacy)
 void computeInviscidFluxAtFP(const Real* U_fp, Real* F_fp,
                               const Real* face_normals,
                               const int* face_left_elem,
@@ -106,9 +118,23 @@ void computeInviscidFluxAtFP(const Real* U_fp, Real* F_fp,
                               int n_elem, int n_edges, int n_fp_per_edge,
                               cudaStream_t stream = 0);
 
-// Compute flux difference: F_diff = F_common - F_int
+// Compute flux difference: F_diff = F_common - F_int (simple version)
 void computeFluxDifference(const Real* F_common, const Real* F_int,
                             Real* F_diff, int n, cudaStream_t stream = 0);
+
+// Compute F_diff for FR correction, properly handling left and right elements
+void computeFluxDiffForFR(
+    const Real* U_fp,
+    const Real* F_common,
+    Real* F_diff_elem,
+    const int* face_left_elem,
+    const int* face_left_local,
+    const int* face_right_elem,
+    const int* face_right_local,
+    const Real* face_normals,
+    Real gamma,
+    int n_faces, int n_fp_per_face, int n_faces_per_elem,
+    cudaStream_t stream = 0);
 
 // Compute common viscous flux at flux points (BR2 scheme)
 void computeViscousFluxFP(const Real* U_L, const Real* U_R,
