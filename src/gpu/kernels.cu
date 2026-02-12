@@ -598,7 +598,7 @@ __global__ void computeRiemannFluxWithBCKernel(
         if (face == 0 && fp == 0) {
             printf("BOUNDARY DEBUG face 0:\n");
             printf("  right_elem=%d (boundary)\n", right_elem);
-            printf("  bc_type[0]=%d (0=None,1=Farfield,2=SlipWall,3=Supersonic)\n", bc_type[face]);
+            printf("  bc_type[0]=%d (0=Interior,1=Wall,2=SlipWall,3=Symmetry,4=FarField)\n", bc_type[face]);
             printf("  bc_face_map[0]=%d\n", bc_idx);
         }
         
