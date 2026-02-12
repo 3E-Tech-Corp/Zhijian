@@ -1010,10 +1010,11 @@ __global__ void applyFRCorrectionKernel(
     Real Jdet = J[elem * n_sp + sp];
     int idx = elem * n_sp * N_VARS + sp * N_VARS + var;
     
-    // Note: div_F already contains -∇·F (negative divergence)
-    // FR adds: -g' * (F_common - F_int) / J
-    // The negative sign is because dU/dt = -∇·F (conservation form)
-    div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
+    // TEMPORARILY DISABLED for debugging - testing if instability is from correction
+    // TODO: The correction needs proper metric transformation, not just 1/J scaling
+    // div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
+    (void)correction;  // Suppress unused warning
+    (void)Jdet;
 }
 
 void applyFRCorrection(Real* div_F,
