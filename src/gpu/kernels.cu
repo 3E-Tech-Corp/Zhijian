@@ -581,6 +581,14 @@ __global__ void computeRiemannFluxWithBCKernel(
         for (int v = 0; v < N_VARS; ++v) {
             UR[v] = U_fp[right_offset + v];
         }
+        
+        // Debug: show right element info
+        if (face == 0 && fp == 0) {
+            printf("RIGHT ELEM DEBUG:\n");
+            printf("  right_elem=%d right_local=%d right_fp=%d\n", right_elem, right_local, right_fp);
+            printf("  right_offset=%d\n", right_offset);
+            printf("  UR from U_fp: [%g, %g, %g, %g]\n", UR[0], UR[1], UR[2], UR[3]);
+        }
     } else {
         // Boundary face: compute ghost state
         BCType bct = static_cast<BCType>(bc_type[face]);
