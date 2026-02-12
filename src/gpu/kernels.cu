@@ -593,12 +593,28 @@ __global__ void computeRiemannFluxWithBCKernel(
         // Boundary face: compute ghost state
         BCType bct = static_cast<BCType>(bc_type[face]);
         int bc_idx = bc_face_map[face];  // Index into bc_data
+        
+        // Debug: show BC info for face 0
+        if (face == 0 && fp == 0) {
+            printf("BOUNDARY DEBUG face 0:\n");
+            printf("  right_elem=%d (boundary)\n", right_elem);
+            printf("  bc_type[0]=%d (0=None,1=Farfield,2=SlipWall,3=Supersonic)\n", bc_type[face]);
+            printf("  bc_face_map[0]=%d\n", bc_idx);
+        }
+        
         // Safety check: if bc_idx is invalid, just reflect (slip wall)
         if (bc_idx < 0) {
+            if (face == 0 && fp == 0) {
+                printf("  WARNING: bc_idx<0, falling back to SlipWall!\n");
+            }
             bct = BCType::SlipWall;
             bc_idx = 0;
         }
         UR = computeGhostState(UL, nx, ny, bct, bc_data, bc_idx, gamma);
+        
+        if (face == 0 && fp == 0) {
+            printf("  Ghost UR=[%g, %g, %g, %g]\n", UR[0], UR[1], UR[2], UR[3]);
+        }
     }
 
     // Compute Riemann flux with inline safety guards
