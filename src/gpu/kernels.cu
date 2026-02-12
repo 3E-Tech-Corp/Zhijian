@@ -1015,7 +1015,16 @@ __global__ void applyFRCorrectionKernel(
     
     // Apply correction (essential for stability!)
     // The sign is negative because div_F = -∇·F and correction adds to the flux derivative
-    div_F[idx] -= correction / fmax(fabs(Jdet), 1e-10);
+    // Skip correction if it's negligible relative to the current divergence
+    // This prevents amplification of small numerical errors by 1/J for uniform flow
+    Real scaled_corr = correction / fmax(fabs(Jdet), 1e-10);
+    Real current_div = fabs(div_F[idx]);
+    Real threshold = fmax(current_div * 0.1, 1e-10);  // 10% of current or 1e-10
+    
+    // Only apply correction if it's significant
+    if (fabs(scaled_corr) > threshold) {
+        div_F[idx] -= scaled_corr;
+    }
 }
 
 void applyFRCorrection(Real* div_F,
